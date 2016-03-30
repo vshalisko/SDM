@@ -6,6 +6,7 @@ library(rgdal)
 library(maptools)
 library(raster)
 library(dismo)
+library(kernlab)
 
 my_factor.as.numeric <- function (f) { as.numeric(levels(f))[f] }
 
@@ -17,7 +18,7 @@ Definición de veriables
 
 my_specie <- 'Zinnia spp.'
 my_specie_file <- 'Zinnia_spp'
-my_method <- 'MAXENT'
+my_method <- 'SVM'
 my_path <- 'C:\\Users\\Viacheslav\\Google Drive\\Projects_actual\\geo_BioclimInterpolation_Occidente\\Bioclim_a100\\'
 
 b <- stack(paste(my_path,"biovars_primnev_modis_a300.tif",sep=""))
@@ -109,18 +110,20 @@ paste('Número de puntos de control:',nrow(traindata[testdata$pb==1,]),sep=' ')
 Modelación
 
 ```{r fig.width=10, fig.height=10}
-jar <- paste(system.file(package='dismo'), '/java/maxent.jar', sep='')
-if (file.exists(jar)) {
+#jar <- paste(system.file(package='dismo'), '/java/maxent.jar', sep='')
+#if (file.exists(jar)) {
   #bc_model <- maxent(b, obs_points_xy, factors='bosque')
-  bc_model <- maxent(b, obs_points_xy)  
+  bc_model <- ksvm(pb ~ b1+b2+b3+b4+b5+b6+b7+b8+b9+b10+b11+b12+b13+b14+b15+b16+b17+b19+bosque, 
+                   data=all_vals_xy)
+  #bc_model <- maxent(b, obs_points_xy)  
   
   str(bc_model)  
   plot(bc_model)
   response(bc_model)
   
-} else {
-  print('maxent.jar no disponible')
-}
+#} else {
+#  print('maxent.jar no disponible')
+#}
 
 ```
 
@@ -129,11 +132,11 @@ Predicción
 ```{r}
   pb1 <- predict(b1, bc_model, progress='window')
   pb1
-  plot(pb1, main='Modelo MAXENT Primavera')
+  plot(pb1, main='Modelo SVM Primavera')
 
   pb2 <- predict(b2, bc_model, progress='window')
   pb2
-  plot(pb2, main=paste('Modelo MAXENT Nevado:',my_specie,sep=' '))
+  plot(pb2, main=paste('Modelo SVM Nevado:',my_specie,sep=' '))
 ```
 
 
