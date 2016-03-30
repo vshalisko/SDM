@@ -1,0 +1,186 @@
+Regresiones de temperatura vs. elevación por cuadrantes
+========================================================
+
+```{r}
+library(foreign)
+library(sp)
+library(raster)
+library(dismo)
+library(rgeos)
+
+
+elev_field <- 'MDE_aster'
+slope_field <- 'slope'
+aspect_field <- 'aspect'
+relief_field <- 'Relief'
+wind_slope_field <- 'wind_slop'
+wind_dist_field <- 'wind_dist'
+ocean_slope_field <- 'ocean_slop'
+ocean_dist_field <- 'ocean_dist'
+wind_speed_field <- 'wind_sp01'
+
+list_prec <- c('prec_1_cli','prec_2_cli','prec_3_cli','prec_4_cli','prec_5_cli','prec_6_cli','prec_7_cli','prec_8_cli','prec_9_cli','prec_10_cl','prec_11_cl','prec_12_cl')
+
+
+replaceOutliers <- function(x){
+    quantiles <- quantile( x, c(0.25, 0.5, 0.75) )
+    limits <- c(quantiles[2] - 1.5*(quantiles[3]-quantiles[1]),
+                quantiles[2] + 1.5*(quantiles[3]-quantiles[1]))
+    x[ x < limits[1] ] <- limits[1]
+    x[ x > limits[2] ] <- limits[2]
+    x
+}
+
+
+```
+
+
+```{r}
+# read data
+prec<-read.dbf("prec_100000_sample_with_aspect.dbf")
+dim(prec)
+
+# add variables to identify 1 degree cuadrants 
+prec$Xclass <- as.factor(floor(prec$X))
+prec$Yclass <- as.factor(floor(prec$Y))
+
+minX <- min(floor(prec$X))
+maxX <- max(ceiling(prec$X))
+minY <- min(floor(prec$Y))
+maxY <- max(ceiling(prec$Y))
+
+ext <- extent(minX, maxX, minY, maxY)
+ext
+
+# make lists of cuadrant indices
+prec_X_values <- sort(unique(prec$Xclass, incomparables = FALSE))
+prec_Y_values <- sort(unique(prec$Yclass, incomparables = FALSE))
+
+prec_X_values
+prec_Y_values
+
+Xseq <- seq(minX, maxX, 0.5)
+Yseq <- seq(minY, maxY, 0.5)
+length(Xseq)
+length(Yseq)
+
+```
+
+
+```{r}
+prec_sp <- SpatialPointsDataFrame(prec[,c('X','Y')],prec,
+                                  proj4string=CRS("+proj=longlat +ellps=WGS84"))
+summary(prec_sp)
+```
+
+```{r fig.width=10, fig.height=3}
+
+#for (k in 1:2) {
+#for (k in 1:length(list_prec)) {
+for (k in 10:length(list_prec)) {
+  print(paste('Variable ',list_prec[k],sep=""))
+
+  # create empty table for variable of month k
+  col_pr_2var_R2 <- paste('pr_',k,'_R2',sep="")
+  col_pr_2var_I <- paste('pr_',k,'_I',sep="")
+  col_pr_2var_El2 <- paste('pr_',k,'_el2',sep="")
+  col_pr_2var_El1 <- paste('pr_',k,'_el1',sep="")
+  col_pr_2var_Sl1 <- paste('pr_',k,'_sl1',sep="")
+  my_table_prec <- data.frame(t(rep(NA,7)))
+  columns <- c("X_center", "Y_center", 
+             col_pr_2var_I,
+             col_pr_2var_El2,
+             col_pr_2var_El1,
+             col_pr_2var_Sl1,
+             col_pr_2var_R2)
+  names(my_table_prec) <- columns
+  
+  for (i in 1:length(Xseq)) {
+#  for (i in 19:20) {
+    for (j in 1:length(Yseq)) {
+#   for (j in 51:53) {
+      
+      center_XY <- matrix(c(Xseq[i],Yseq[j]),nrow=1,ncol=2,byrow = TRUE)
+      center_point <- SpatialPoints(center_XY,
+                    proj4string=CRS("+proj=longlat +ellps=WGS84"))
+      
+      buffer <- circles(center_point, d=50000, lonlat=TRUE)
+
+      selected_points <- prec_sp[!is.na(over(prec_sp,buffer@polygons[1])),]
+
+      selected_points_count <- nrow(selected_points@data)
+      
+      #print(selected_points)
+      #str(selected_points)
+      
+      
+          y <- selected_points@data[[list_prec[k]]]  
+          el <- selected_points@data[[elev_field]]
+          el_main <- replaceOutliers(el)
+          sl <- selected_points@data[[slope_field]]
+          ws <- selected_points@data[[wind_slope_field]]
+          wd <- selected_points@data[[wind_dist_field]]
+          os <- selected_points@data[[ocean_slope_field]]
+          od <- selected_points@data[[ocean_dist_field]]
+          sp <- selected_points@data[[wind_speed_field]]
+          as <- selected_points@data[[aspect_field]]
+          rl <- selected_points@data[[relief_field]]
+          asx <- cos(selected_points@data[[aspect_field]]*pi/180)
+          asy <- sin(selected_points@data[[aspect_field]]*pi/180)      
+      
+      if ((selected_points_count > 20) && ( max(el_main) - min(el_main) >= 1000 )) {
+        print(paste('Point',Xseq[i],Yseq[j],sep=' '))
+        print(paste('N =',selected_points_count),sep=' ')
+        
+        
+        par(mfcol = c(1,4))
+        plot(buffer, axes=TRUE)
+        points(center_point, cex=1.2, pch=20, col='blue')
+        points(prec_sp, cex=0.75, pch=20, col='red')
+        boxplot(y, ylab='P')
+        boxplot(el, ylab='el')
+        boxplot(sl, ylab='sl')            
+        
+        my_fit <- lm(y ~ el)
+        plot(y ~ el, 
+             main=paste('Point ',Xseq[i],'° ',Yseq[j],'°, month ',k,sep=""), 
+             xlab=paste('elevation, R²=',round(summary(my_fit)$r.squared,digits=2),sep=''), 
+             ylab='P',col='darkgray')
+        abline(my_fit, col='red', lwd=2)
+
+        # elevation + slope + second order
+        my_fit2 <- lm(y ~ el + sl + I(el^2))
+        plot(y ~ el, 
+            main=paste('Point ',Xseq[i],'° ',Yseq[j],'°, month ',k,sep=""), 
+            xlab=paste('elevation, el+sl+rl+as 2-nd order, R²=',round(summary(my_fit2)$r.squared,digits=2),sep=''), 
+            ylab='P',col='darkgray')
+            pol2 <- function(el) my_fit2$coefficient[4]*el^2 + my_fit2$coefficient[2]*el + my_fit2$coefficient[1]
+            curve(pol2, col="blue", lwd=2, xname="el", add = TRUE)
+        plot(y ~ sl, 
+            main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+            xlab=paste('slope, el+sl+rl+as 2-nd order, R²=',round(summary(my_fit2)$r.squared,digits=2),sep=''), 
+            ylab='P',col='darkgray')
+        pol2a <- function(sl) my_fit2$coefficient[3]*sl + my_fit2$coefficient[1]
+        curve(pol2a, col="blue", lwd=2, xname="sl", add = TRUE)          
+
+        print('Elevation + slope 2-nd order')
+        print(summary(my_fit2)) 
+
+        my_table_line <- c(Xseq[i],
+                           Yseq[j],
+                           coef(my_fit2)[1],                               
+                           coef(my_fit2)[4],
+                           coef(my_fit2)[2],
+                           coef(my_fit2)[3],
+                           summary(my_fit2)$r.squared)            
+        my_table_prec <- rbind(my_table_prec,my_table_line)          
+      }
+    }
+  }
+
+  my_table_prec <- my_table_prec[-1,]
+  write.table(my_table_prec, file = paste('table_2var1_',list_prec[k],'.csv',sep=""), 
+              sep = ",", row.names = FALSE)
+}
+```
+
