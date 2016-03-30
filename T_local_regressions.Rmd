@@ -1,0 +1,192 @@
+Regresiones de temperatura vs. elevación por cuadrantes
+========================================================
+
+```{r}
+elev_field <- 'alt_clip_C';
+
+#list_tmax <- c('tmax_1_cli')  # for debugging
+list_tmax <- c('tmax_1_cli','tmax_2_cli','tmax_3_cli','tmax_4_cli','tmax_5_cli','tmax_6_cli','tmax_7_cli','tmax_8_cli','tmax_9_cli','tmax_10_cl','tmax_11_cl','tmax_12_cl')
+
+list_tmin <- c('tmin_1_cli','tmin_2_cli','tmin_3_cli','tmin_4_cli','tmin_5_cli','tmin_6_cli','tmin_7_cli','tmin_8_cli','tmin_9_cli','tmin_10_cl','tmin_11_cl','tmin_12_cl')
+
+```
+
+
+```{r}
+
+# read data
+library(foreign)
+tmax<-read.dbf("tmax_30000_sample.dbf")
+tmin<-read.dbf("tmin_30000_sample.dbf")
+
+# add variables to identify 1 degree cuadrants 
+tmax$Xclass <- as.factor(floor(tmax$X))
+tmax$Yclass <- as.factor(floor(tmax$Y))
+tmin$Xclass <- as.factor(floor(tmin$X))
+tmin$Yclass <- as.factor(floor(tmin$Y))
+
+# make lists of cuadrant indices
+tmax_X_values <- sort(unique(tmax$Xclass, incomparables = FALSE))
+tmax_Y_values <- sort(unique(tmax$Yclass, incomparables = FALSE))
+tmin_X_values <- sort(unique(tmin$Xclass, incomparables = FALSE))
+tmin_Y_values <- sort(unique(tmin$Yclass, incomparables = FALSE))
+
+tmax_X_values
+tmax_Y_values
+tmin_X_values
+tmin_Y_values
+
+
+# convert temperature values to degrees
+for (i in 1:length(list_tmax)) {
+  tmax[[list_tmax[i]]] <- tmax[[list_tmax[i]]] / 10
+}
+for (i in 1:length(list_tmin)) {
+  tmin[[list_tmin[i]]] <- tmin[[list_tmin[i]]] / 10
+}
+```
+
+
+```{r}
+dim(tmax)
+summary(tmax)
+
+dim(tmin)
+summary(tmin)
+```
+
+
+```{r}
+
+```
+
+
+TMAX regressions
+
+```{r fig.width=10, fig.height=2.5}
+par(mfcol = c(1, 4))
+
+for (k in 1:length(list_tmax)) {
+  
+  print(paste('Variable ',list_tmax[k],sep=""))
+
+  # create empty table for variable of month k
+  my_table_tmax <- data.frame(t(rep(NA,5)))
+  columns <- c("X_center", "Y_center", 
+             paste('tmax_',k,'_A',sep=""),
+             paste('tmax_',k,'_B',sep=""),
+             paste('tmax_',k,'_R2',sep=""))
+  names(my_table_tmax) <- columns
+  
+  
+  for (i in 1:length(tmax_X_values) ) {
+    tmax_i <- tmax[tmax$Xclass == tmax_X_values[i],]
+    for (j in 1:length(tmax_Y_values) ) {
+      tmax_ij <- tmax_i[tmax_i$Yclass == tmax_Y_values[j],]
+      tmax_ij <- tmax_ij[complete.cases(tmax_ij),]        # take only cases with data
+      tmax_ij <- tmax_ij[tmax_ij[[elev_field]] > 0,]      # take only data with positive elevation
+      if (nrow(tmax_ij) > 0) {
+        #print(dim(tmax_ij))
+      
+        # data suitable for regression analysis should fit following criteria:
+        # 1) have enough samples (n > 20)
+        # 2) values should be normally distributed ?
+        # 3) variability in elevation should be at least 1000 m
+        if ((nrow(tmax_ij) > 20) && 
+              ( max(tmax_ij[[elev_field]]) - min(tmax_ij[[elev_field]]) >= 1000 )) {
+            
+            # data could be considered suitable for analysis
+            plot(tmax_ij[[list_tmax[k]]] ~ tmax_ij[[elev_field]], 
+                 main=paste('Cuadrant ',tmax_X_values[i],'° ',tmax_Y_values[j],'°, month ',k,sep=""), 
+                 xlab='elevation', ylab='T max',col='darkgray')
+            my_fit <- lm(tmax_ij[[list_tmax[k]]] ~ tmax_ij[[elev_field]])
+            abline(my_fit, col='red', lwd=2)
+            
+            # print(summary(my_fit))
+            
+            # store the centers of cuadrants, regression coefficients and R2 in table
+            # note: the conversion of factor to numeric values require use of levels attribute
+            my_table_line <- c(as.numeric(levels(tmax_X_values)[tmax_X_values[i]])+0.5,
+                               as.numeric(levels(tmax_Y_values)[tmax_Y_values[j]])+0.5,
+                               coef(my_fit)[1],coef(my_fit)[2],
+                               summary(my_fit)$r.squared)            
+
+            my_table_tmax <- rbind(my_table_tmax,my_table_line)
+
+        }
+      }
+    }     
+  }
+
+  my_table_tmax <- my_table_tmax[-1,]
+  #my_table_tmax
+  write.table(my_table_tmax, file = paste('table_',list_tmax[k],'.csv',sep=""), 
+              sep = ",", row.names = FALSE)
+}
+            
+```
+
+
+TMIN regressions
+
+```{r fig.width=10, fig.height=2.5}
+par(mfcol = c(1, 4))
+
+for (k in 1:length(list_tmin)) {
+  
+  print(paste('Variable ',list_tmin[k],sep=""))
+
+  # create empty table for variable of month k
+  my_table_tmin <- data.frame(t(rep(NA,5)))
+  columns <- c("X_center", "Y_center", 
+             paste('tmin_',k,'_A',sep=""),
+             paste('tmin_',k,'_B',sep=""),
+             paste('tmin_',k,'_R2',sep=""))
+  names(my_table_tmin) <- columns
+  
+  
+  for (i in 1:length(tmin_X_values) ) {
+    tmin_i <- tmin[tmin$Xclass == tmin_X_values[i],]
+    for (j in 1:length(tmin_Y_values) ) {
+      tmin_ij <- tmin_i[tmin_i$Yclass == tmin_Y_values[j],]
+      tmin_ij <- tmin_ij[complete.cases(tmin_ij),]        # take only cases with data
+      tmin_ij <- tmin_ij[tmin_ij[[elev_field]] > 0,]      # take only data with positive elevation
+      if (nrow(tmin_ij) > 0) {
+        #print(dim(tmin_ij))
+      
+        # data suitable for regression analysis should fit following criteria:
+        # 1) have enough samples (n > 20)
+        # 2) values should be normally distributed ?
+        # 3) variability in elevation should be at least 1000 m
+        if ((nrow(tmin_ij) > 20) && 
+              ( max(tmin_ij[[elev_field]]) - min(tmin_ij[[elev_field]]) >= 1000 )) {
+            
+            # data could be considered suitable for analysis
+            plot(tmin_ij[[list_tmin[k]]] ~ tmin_ij[[elev_field]], 
+                 main=paste('Cuadrant ',tmin_X_values[i],'° ',tmin_Y_values[j],'°, month ',k,sep=""), 
+                 xlab='elevation', ylab='T min',col='darkgray')
+            my_fit <- lm(tmin_ij[[list_tmin[k]]] ~ tmin_ij[[elev_field]])
+            abline(my_fit, col='red', lwd=2)
+            
+            # print(summary(my_fit))
+            
+            # store the centers of cuadrants, regression coefficients and R2 in table
+            # note: the conversion of factor to numeric values require use of levels attribute
+            my_table_line <- c(as.numeric(levels(tmin_X_values)[tmin_X_values[i]])+0.5,
+                               as.numeric(levels(tmin_Y_values)[tmin_Y_values[j]])+0.5,
+                               coef(my_fit)[1],coef(my_fit)[2],
+                               summary(my_fit)$r.squared)            
+
+            my_table_tmin <- rbind(my_table_tmin,my_table_line)
+
+        }
+      }
+    }     
+  }
+
+  my_table_tmin <- my_table_tmin[-1,]
+  #my_table_tmin
+  write.table(my_table_tmin, file = paste('table_',list_tmin[k],'.csv',sep=""), 
+              sep = ",", row.names = FALSE)
+}
+```
