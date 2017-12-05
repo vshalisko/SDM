@@ -1,0 +1,45 @@
+Title
+========================================================
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring web pages (click the **Help** toolbar button for more details on using R Markdown).
+
+When you click the **Knit HTML** button a web page will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(raster)
+library(dismo)
+
+
+my_path <- 'C:\\Users\\Viacheslav\\Downloads\\Aster\\bioclim_CA\\'
+
+prec<-stack(paste(my_path,"prec_",1:12,"_clip_CA.tif",sep=""))
+tmin<-stack(paste(my_path,"tmin_",1:12,"_clip_CA.tif",sep=""))
+tmax<-stack(paste(my_path,"tmax_",1:12,"_clip_CA.tif",sep=""))
+
+prec
+tmin
+tmax
+
+
+
+```
+
+```{r}
+b <- biovars(prec, tmin, tmax)
+as.matrix(b)
+
+b
+```
+
+Guardando raster con 19 variables bioclimáticas
+
+```{r fig.width=7, fig.height=6}
+
+
+
+if (require(rgdal)) {
+  rf <- writeRaster(b, filename=paste(my_path,"biovars.tif",sep=""), format="GTiff", overwrite=TRUE)
+}
+
+```
+

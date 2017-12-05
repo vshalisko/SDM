@@ -1,0 +1,711 @@
+Regresiones de temperatura vs. elevación por cuadrantes
+========================================================
+
+```{r}
+elev_field <- 'MDE_aster';
+slope_field <- 'slope';
+wind_slope_field <- 'wind_slop';
+wind_dist_field <- 'wind_dist';
+ocean_slope_field <- 'ocean_slop';
+ocean_dist_field <- 'ocean_dist';
+wind_speed_field <- 'wind_sp01';
+
+list_prec <- c('prec_1_cli')  # for debugging
+#list_prec <- c('prec_1_cli','prec_2_cli','prec_3_cli','prec_4_cli','prec_5_cli','prec_6_cli','prec_7_cli','prec_8_cli','prec_9_cli','prec_10_cl','prec_11_cl','prec_12_cl')
+
+
+orth2raw <- function(x){
+# from http://stackoverflow.com/questions/31457230/r-translate-a-model-having-orthogonal-polynomials-to-a-function-using-qr-decomp/31473582#31473582
+# x <- poly(.., raw=FALSE) has a "coefs" attribute "which contains 
+# the centering and normalization constants used in constructing 
+# the orthogonal polynomials". orth2raw returns the coefficents of
+# those polynomials in the conventional form
+#    b0.x^0 + b1.x^1 + b2.x^2 + ...
+# It handles the coefs list returned by my modifications of 
+# poly and polym to handle multivariate predictions  
+    o2r <- function(coefs){
+       Xmean <- coefs$alpha[1]
+       Xsd <- sqrt(coefs$norm2[3]/coefs$norm2[2])
+       X <- seq(Xmean-3*Xsd, Xmean+3*Xsd, length.out=degree+1)
+       Y <- poly(X, degree = degree, coefs=coefs)
+       Rcoefs <- matrix(0,degree, degree+1)
+       for (i in 1:degree) Rcoefs[i,1:(i+1)] <- coef(lm(Y[,i] ~ poly(X, i, raw=TRUE) ))
+       dimnames(Rcoefs) <- list(paste0("poly(x)", 1:degree), paste0("x^",0:degree))
+       Rcoefs
+      }
+   degree <- max(attr(x, "degree"))
+   coefs <- attr(x, "coefs")
+   if(is.list(coefs[[1]])) lapply(coefs, o2r) else o2r(coefs)
+   }
+
+mypolym <- function (..., degree = 1, coefs = NULL, raw = FALSE) 
+# modified by Keith Jewell 
+# modified by Trevor Hastie
+# modified by Viacheslav Shalisko
+# add coefs argument 
+{ 
+   if(is.null(coefs)) { 
+     dots <- list(...) 
+     nd <- length(dots) 
+     if (nd == 0) 
+       stop("must supply one or more vectors") 
+     if (nd == 1) 
+       return(mypoly(dots[[1L]], degree, raw = raw)) 
+     n <- sapply(dots, length) 
+     if (any(n != n[1L])) 
+       stop("arguments must have the same length") 
+     z <- do.call("expand.grid", rep.int(list(0:degree), nd)) 
+     s <- rowSums(z) 
+     ind <- (s > 0) & (s <= degree) 
+     z <- z[ind, ] 
+     s <- s[ind] 
+     aPoly <- mypoly(dots[[1L]], degree, raw = raw) # avoid 2 calcs 
+     res <- cbind(1, aPoly)[, 1 + z[, 1]] 
+# attribute "coefs" = list of coefs from individual variables 
+     if (!raw) coefs <- list(attr(aPoly, "coefs")) 
+     for (i in 2:nd) { 
+       aPoly <- mypoly(dots[[i]], degree, raw = raw) 
+       res <- res * cbind(1, aPoly)[, 1 + z[, i]] 
+       if (!raw) coefs <- c(coefs, list(attr(aPoly, "coefs"))) 
+     } 
+     colnames(res) <- apply(z, 1L, function(x) paste(x, collapse = ".")) 
+     attr(res, "degree") <- as.vector(s) 
+     if (!raw) attr(res, "coefs") <- coefs 
+     class(res) <- c("mypoly", "matrix") # add poly class 
+     res 
+   } 
+   else 
+   { 
+     nd <- length(coefs)    # number of variables 
+     newdata <- as.data.frame(list(...)) # new data 
+     if (nd != ncol(newdata)) stop("wrong number of columns in newdata") 
+     z <- do.call("expand.grid", rep.int(list(0:degree), nd)) 
+     s <- rowSums(z) 
+     ind <- (s > 0) & (s <= degree) 
+     z <- z[ind, ] 
+     res <- cbind(1, mypoly(newdata[[1]], degree=degree, 
+coefs=coefs[[1]]))[, 1 + z[, 1]] 
+     for (i in 2:nd) res <- res*cbind(1, poly(newdata[[i]], 
+degree=degree, coefs=coefs[[i]]))[, 1 + z[, i]] 
+     colnames(res) <- apply(z, 1L, function(x) paste(x, collapse = ".")) 
+     res 
+   } 
+} 
+
+mypoly <-
+  function (x, ..., degree = 1, coefs = NULL, raw = FALSE) 
+{
+  # modified by Keith Jewell 
+  # modified by Viacheslav Shalisko
+  dots <- list(...)
+  if (nd <- length(dots)) {
+    if (nd == 1 && length(dots[[1L]]) == 1L) 
+      degree <- dots[[1L]]
+    else return(mypolym(x, ..., degree = degree, coefs=coefs, raw = raw))
+  }
+  if (is.matrix(x)) {
+    m <- unclass(as.data.frame(cbind(x, ...)))
+    return(do.call("mypolym", c(m, degree = degree, raw = raw,list(coefs=coefs))))
+  }
+  if (degree < 1) 
+    stop("'degree' must be at least 1")
+  if (any(is.na(x))) 
+    stop("missing values are not allowed in 'poly'")
+  n <- degree + 1
+  if (raw) {
+    Z <- outer(x, 1L:degree, "^")
+    colnames(Z) <- 1L:degree
+    attr(Z, "degree") <- 1L:degree
+    class(Z) <- c("mypoly", "matrix")
+    return(Z)
+  }
+  if (is.null(coefs)) {
+    if (degree >= length(unique(x))) 
+      stop("'degree' must be less than number of unique points")
+    xbar <- mean(x)
+    x <- x - xbar
+    X <- outer(x, seq_len(n) - 1, "^")
+    QR <- qr(X)
+#browser()  # debugging
+    if (QR$rank < degree) 
+      stop("'degree' must be less than number of unique points")
+    z <- QR$qr
+    z <- z * (row(z) == col(z))
+    raw <- qr.qy(QR, z)
+    norm2 <- colSums(raw^2)
+    alpha <- (colSums(x * raw^2)/norm2 + xbar)[1L:degree]
+    Z <- raw/rep(sqrt(norm2), each = length(x))
+    colnames(Z) <- 1L:n - 1L
+    Z <- Z[, -1, drop = FALSE]
+    attr(Z, "degree") <- 1L:degree
+    attr(Z, "coefs") <- list(alpha = alpha, norm2 = c(1, 
+                                              norm2))
+    class(Z) <- c("mypoly", "matrix")
+  }
+  else {
+    alpha <- coefs$alpha
+    norm2 <- coefs$norm2
+    Z <- matrix(, length(x), n)
+    Z[, 1] <- 1
+    Z[, 2] <- x - alpha[1L]
+    if (degree > 1) 
+      for (i in 2:degree) Z[, i + 1] <- (x - alpha[i]) * 
+        Z[, i] - (norm2[i + 1]/norm2[i]) * Z[, i - 1]
+    Z <- Z/rep(sqrt(norm2[-1L]), each = length(x))
+    colnames(Z) <- 0:degree
+    Z <- Z[, -1, drop = FALSE]
+    attr(Z, "degree") <- 1L:degree
+    attr(Z, "coefs") <- list(alpha = alpha, norm2 = norm2)
+    class(Z) <- c("mypoly", "matrix")
+  }
+  Z
+}
+
+```
+
+
+```{r}
+
+# read data
+library(foreign)
+prec<-read.dbf("prec_100000_sample.dbf")
+
+# add variables to identify 1 degree cuadrants 
+prec$Xclass <- as.factor(floor(prec$X))
+prec$Yclass <- as.factor(floor(prec$Y))
+
+# make lists of cuadrant indices
+prec_X_values <- sort(unique(prec$Xclass, incomparables = FALSE))
+prec_Y_values <- sort(unique(prec$Yclass, incomparables = FALSE))
+
+prec_X_values
+prec_Y_values
+```
+
+
+```{r}
+dim(prec)
+summary(prec)
+```
+
+
+```{r fig.width=10, fig.height=5, cache = TRUE}
+par(mfcol = c(1,2))
+
+for (k in 1:length(list_prec)) {
+  
+          y <- prec[[list_prec[k]]]  
+          el <- prec[[elev_field]]
+          sl <- prec[[slope_field]]
+          ws <- prec[[wind_slope_field]]
+          wd <- prec[[wind_dist_field]]
+          os <- prec[[ocean_slope_field]]
+          od <- prec[[ocean_dist_field]]
+          sp <- prec[[wind_speed_field]]
+
+    my_fit <- lm(y ~ el)
+    plot(y ~ el, 
+            main=paste('month ',k,sep=""), 
+            xlab=paste('elevation, R²=',round(summary(my_fit)$r.squared,digits=2),sep=''), 
+            ylab='P',col='darkgray')
+    abline(my_fit, col='red', lwd=2)
+    
+    my_fit2 <- lm(y ~ sl)
+    plot(y ~ sl, 
+            main=paste('month ',k,sep=""), 
+            xlab=paste('slope, R²=',round(summary(my_fit2)$r.squared,digits=2),sep=''), 
+            ylab='P',col='darkgray')
+    abline(my_fit2, col='red', lwd=2)
+    
+    my_fit3 <- lm(y ~ ws)
+    plot(y ~ ws, 
+            main=paste('month ',k,sep=""), 
+            xlab=paste('wind slope, R²=',round(summary(my_fit3)$r.squared,digits=2),sep=''), 
+            ylab='P',col='darkgray')
+    abline(my_fit3, col='red', lwd=2)
+    
+    my_fit4 <- lm(y ~ wd)
+    plot(y ~ wd, 
+            main=paste('month ',k,sep=""), 
+            xlab=paste('wind distance, R²=',round(summary(my_fit4)$r.squared,digits=2),sep=''), 
+            ylab='P',col='darkgray')
+    abline(my_fit4, col='red', lwd=2)
+
+    # wind speed
+    my_fit5 <- lm(y ~ sp)
+    plot(y ~ sp, 
+             main=paste('month ',k,sep=""), 
+             xlab=paste('wind speed, R²=',round(summary(my_fit5)$r.squared,digits=2),sep=''), 
+             ylab='P',col='darkgray')
+    abline(my_fit5, col='red', lwd=2)
+            
+    # ocean slope
+    my_fit6 <- lm(y ~ os)
+    plot(y ~ os, 
+            main=paste('month ',k,sep=""), 
+            xlab=paste('ocean slope, R²=',round(summary(my_fit6)$r.squared,digits=2),sep=''), 
+            ylab='P',col='darkgray')
+    abline(my_fit6, col='red', lwd=2)            
+
+    # ocean distance
+    my_fit7 <- lm(y ~ od)
+    plot(y ~ od, 
+           main=paste('month ',k,sep=""), 
+           xlab=paste('ocean distance, R²=',round(summary(my_fit7)$r.squared,digits=2),sep=''), 
+           ylab='P',col='darkgray')
+    abline(my_fit7, col='red', lwd=2)
+            
+    # wind ocean distance
+    my_fit8 <- lm(y ~ el + sl)
+    plot(y ~ el, 
+          main=paste('month ',k,sep=""), 
+          xlab=paste('elevation + slope, R²=',round(summary(my_fit8)$r.squared,digits=2),sep=''), 
+          ylab='P',col='darkgray')
+    abline(my_fit8, col='red', lwd=2)  
+
+    # wind ocean distance
+    my_fit9 <- lm(y ~ el + sl + ws + os)
+    plot(y ~ el, 
+          main=paste('month ',k,sep=""), 
+          xlab=paste('local effect vars., R²=',round(summary(my_fit9)$r.squared,digits=2),sep=''), 
+          ylab='P',col='darkgray')
+    abline(my_fit9, col='red', lwd=2) 
+    
+    # remote effect vars
+    my_fit10 <- lm(y ~ el + sp + wd + od)
+    plot(y ~ el, 
+          main=paste('month ',k,sep=""), 
+          xlab=paste('remote effect vars., R²=',round(summary(my_fit10)$r.squared,digits=2),sep=''), 
+          ylab='P',col='darkgray')
+    abline(my_fit10, col='red', lwd=2)  
+    
+}
+```
+
+PREC regressions in cuadrants
+
+```{r fig.width=10, fig.height=2.5, warning=FALSE}
+par(mfcol = c(1,4))
+
+for (k in 1:length(list_prec)) {
+  
+  print(paste('Variable ',list_prec[k],sep=""))
+
+  # create empty table for variable of month k
+  my_table_prec <- data.frame(t(rep(NA,5)))
+  columns <- c("X_center", "Y_center", 
+             paste('prec_',k,'_A',sep=""),
+             paste('prec_',k,'_B',sep=""),
+             paste('prec_',k,'_R2',sep=""))
+  names(my_table_prec) <- columns
+  
+  
+#  for (i in 1:length(prec_X_values) ) {
+  for (i in 1:2) {
+    prec_i <- prec[prec$Xclass == prec_X_values[i],]
+    for (j in 1:length(prec_Y_values) ) {
+      prec_ij <- prec_i[prec_i$Yclass == prec_Y_values[j],]
+      prec_ij <- prec_ij[complete.cases(prec_ij),]        # take only cases with data
+      prec_ij <- prec_ij[prec_ij[[elev_field]] > 0,]      # take only data with positive elevation
+      if (nrow(prec_ij) > 0) {
+        #print(dim(prec_ij))
+      
+        # data suitable for regression analysis should fit following criteria:
+        # 1) have enough samples (n > 20)
+        # 2) values should be normally distributed ?
+        # 3) variability in elevation should be at least 1000 m
+        if ((nrow(prec_ij) > 20) && 
+              ( max(prec_ij[[elev_field]]) - min(prec_ij[[elev_field]]) >= 1000 )) {
+              # data could be considered suitable for analysis
+
+          y <- prec_ij[[list_prec[k]]]  
+          el <- prec_ij[[elev_field]]
+          sl <- prec_ij[[slope_field]]
+          ws <- prec_ij[[wind_slope_field]]
+          wd <- prec_ij[[wind_dist_field]]
+          os <- prec_ij[[ocean_slope_field]]
+          od <- prec_ij[[ocean_dist_field]]
+          sp <- prec_ij[[wind_speed_field]]
+          
+          
+            # elevation
+            my_fit <- lm(y ~ el)
+            plot(y ~ el, 
+                 main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                 xlab=paste('elevation, R²=',round(summary(my_fit)$r.squared,digits=2),sep=''), 
+                 ylab='P',col='darkgray')
+            abline(my_fit, col='red', lwd=2)
+            
+            # slope
+            my_fit2 <- lm(y ~ sl)
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('slope, R²=',round(summary(my_fit2)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit2, col='red', lwd=2)            
+
+            # wind slope
+            my_fit3 <- lm(y ~ ws)
+            plot(y ~ ws, 
+                 main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                 xlab=paste('wind slope, R²=',round(summary(my_fit3)$r.squared,digits=2),sep=''), 
+                 ylab='P',col='darkgray')
+            abline(my_fit3, col='red', lwd=2)
+            
+            # wind ocean distance
+            my_fit4 <- lm(y ~ wd)
+            plot(y ~ wd, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('wind distance, R²=',round(summary(my_fit4)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit4, col='red', lwd=2)                  
+            
+            # wind speed
+            my_fit5 <- lm(y ~ sp)
+            plot(y ~ sp, 
+                 main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                 xlab=paste('wind speed, R²=',round(summary(my_fit5)$r.squared,digits=2),sep=''), 
+                 ylab='P',col='darkgray')
+            abline(my_fit5, col='red', lwd=2)
+            
+            # ocean slope
+            my_fit6 <- lm(y ~ os)
+            plot(y ~ os, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('ocean slope, R²=',round(summary(my_fit6)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit6, col='red', lwd=2)            
+
+            # ocean distance
+            my_fit7 <- lm(y ~ od)
+            plot(y ~ od, 
+                 main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                 xlab=paste('ocean distance, R²=',round(summary(my_fit7)$r.squared,digits=2),sep=''), 
+                 ylab='P',col='darkgray')
+            abline(my_fit7, col='red', lwd=2)
+            
+            # elevation + slope
+            my_fit8 <- lm(y ~ el + sl)
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('elevation, el + sl, R²=',round(summary(my_fit8)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit8, col='red', lwd=2)
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('slope, el + sl, R²=',round(summary(my_fit8)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit8, col='red', lwd=2)
+          
+            # elevation + slope second order
+            #my_fit15 <- lm(y ~ polym(el,sl,degree=2,raw=TRUE))  # the same as following line, but ugly summary output
+            my_fit15 <- lm(y ~ el + sl + I(el^2) + I(sl^2) + el*sl)
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('elevation, el + sl 2-nd order, R²=',round(summary(my_fit15)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit15, col='red', lwd=2)
+            pol15 <- function(el) my_fit15$coefficient[4]*el^2 + my_fit15$coefficient[2]*el + my_fit15$coefficient[1]
+            curve(pol15, col="blue", lwd=2, xname="el", add = TRUE)
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('slope, el + sl 2-nd order, R²=',round(summary(my_fit15)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit15, col='red', lwd=2)
+            pol15a <- function(sl) my_fit15$coefficient[5]*sl^2 + my_fit15$coefficient[3]*sl + my_fit15$coefficient[1]
+            curve(pol15a, col="blue", lwd=2, xname="sl", add = TRUE)
+
+            # elevation + slope second order orthogonal polynomes
+            #my_fit17 <- lm(y ~ polym(el,sl,degree=2,raw=TRUE))
+            x <- mypoly(el,sl,degree=2,raw=FALSE)
+            my_fit17 <- lm(y ~ x)
+          
+            # print(attr(x,'degree')) # debugging
+            print(attr(x,'coefs')) # debugging
+            x_coefs <- orth2raw(x)
+            print(x_coefs)
+            #print(x_coefs[[1]][1,])
+            
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('elevation, ord. el + sl 2-nd order, R²=',round(summary(my_fit17)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit15, col='red', lwd=2)
+            pol17 <- function(el) { 
+              y <- x_coefs[[1]][1,2]*el + x_coefs[[1]][1,1] 
+              + x_coefs[[1]][2,3]*el^2 + x_coefs[[1]][2,2]*el 
+              + x_coefs[[1]][2,1]
+              return(y)
+            }
+            curve(pol17, col="green", lwd=2, xname="el", add = FALSE, from=0, to=5000)
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('slope, ord. el + sl 2-nd order, R²=',round(summary(my_fit17)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit15, col='red', lwd=2)
+            pol17a <- function(sl) { 
+              y <- x_coefs[[2]][1,2]*sl + x_coefs[[2]][1,1] 
+              + x_coefs[[2]][2,3]*sl^2 + x_coefs[[2]][2,2]*sl 
+              + x_coefs[[2]][2,1]
+              return(y)
+            }
+            curve(pol17a, col="green", lwd=2, xname="sl", add = FALSE, from=0, to=90)          
+          
+          
+            # elevation + slope + wind slope + ocean slope
+            my_fit13 <- lm(y ~ el + sl + ws + os)
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('elevation, local effect vars., R²=',round(summary(my_fit13)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit13, col='red', lwd=2)  
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('slope, local effect vars., R²=',round(summary(my_fit13)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit13, col='red', lwd=2)
+            plot(y ~ ws, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('ws, local effect vars., R²=',round(summary(my_fit13)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit13, col='red', lwd=2)
+              plot(y ~ os, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('os, local effect vars., R²=',round(summary(my_fit13)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit13, col='red', lwd=2) 
+            
+            # elevation + slope + wind slope + ocean slope second order
+            my_fit14 <- lm(y ~ el + sl + ws + os
+                          + I(el^2) + I(sl^2) + I(ws^2) + I(os^2) 
+                          + el*sl + el*ws + el*os + sl*ws + sl*os + ws*os)
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('elevation, local effect vars. 2-nd order, R²=',round(summary(my_fit14)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit14, col='red', lwd=2)  
+            pol14 <- function(el) my_fit14$coefficient[6]*el^2 + my_fit14$coefficient[2]*el + my_fit14$coefficient[1]
+            curve(pol14, col="blue", lwd=2, xname="el", add = TRUE)
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('slope, local effect vars. 2-nd order, R²=',round(summary(my_fit14)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit14, col='red', lwd=2)  
+            pol14a <- function(sl) my_fit14$coefficient[7]*sl^2 + my_fit14$coefficient[3]*sl + my_fit14$coefficient[1]
+            curve(pol14a, col="blue", lwd=2, xname="sl", add = TRUE)
+            plot(y ~ ws, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('ws, local effect vars. 2-nd order, R²=',round(summary(my_fit14)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit14, col='red', lwd=2)  
+            pol14b <- function(ws) my_fit14$coefficient[8]*ws^2 + my_fit14$coefficient[4]*ws + my_fit14$coefficient[1]
+            curve(pol14b, col="blue", lwd=2, xname="ws", add = TRUE)          
+            plot(y ~ os, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('os, local effect vars. 2-nd order, R²=',round(summary(my_fit14)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit14, col='red', lwd=2)  
+            pol14c <- function(os) my_fit14$coefficient[9]*os^2 + my_fit14$coefficient[5]*os + my_fit14$coefficient[1]
+            curve(pol14c, col="blue", lwd=2, xname="os", add = TRUE)          
+          
+            # elevation + slope + wind slope + wind distance + ocean slope + ocean distance
+            my_fit12 <- lm(y ~ el + sl + ws + wd + os + od)
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('elevation, all vars. (-sp), R²=',round(summary(my_fit12)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit12, col='red', lwd=2)
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('slope, all vars. (-sp), R²=',round(summary(my_fit12)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit12, col='red', lwd=2)  
+              plot(y ~ ws, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('ws, all vars. (-sp), R²=',round(summary(my_fit12)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit12, col='red', lwd=2)  
+              plot(y ~ wd, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('wd, all vars. (-sp), R²=',round(summary(my_fit12)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit12, col='red', lwd=2)  
+              plot(y ~ os, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('os, all vars. (-sp), R²=',round(summary(my_fit12)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit12, col='red', lwd=2)  
+              plot(y ~ od, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('od, all vars. (-sp), R²=',round(summary(my_fit12)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit12, col='red', lwd=2)  
+          
+            # elevation + slope + wind slope + wind distance + ocean slope + ocean distance second order
+            my_fit9 <- lm(y ~ el + sl + ws + os + wd + od
+                          + I(el^2) + I(sl^2) + I(ws^2) + I(os^2) + I(wd^2) + I(od^2)
+                          + el*sl + el*ws + el*os + el*wd + el*od + sl*ws + sl*os + sl*wd + sl*od
+                          + ws*os + ws*wd + ws*od + os*wd + os*od + wd*od)
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('elevation, all vars. (-sp), R²=',round(summary(my_fit9)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit9, col='red', lwd=2)  
+            pol9 <- function(el) my_fit9$coefficient[8]*el^2 + my_fit9$coefficient[2]*el + my_fit9$coefficient[1]
+            curve(pol9, col="blue", lwd=2, add = TRUE)  
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('slope, all vars. (-sp), R²=',round(summary(my_fit9)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit9, col='red', lwd=2)  
+            pol9a <- function(sl) my_fit9$coefficient[9]*sl^2 + my_fit9$coefficient[3]*sl + my_fit9$coefficient[1]
+            curve(pol9a, col="blue", lwd=2, add = TRUE)  
+            plot(y ~ ws, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('ws, all vars. (-sp), R²=',round(summary(my_fit9)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit9, col='red', lwd=2)  
+            pol9b <- function(ws) my_fit9$coefficient[10]*ws^2 + my_fit9$coefficient[4]*ws + my_fit9$coefficient[1]
+            curve(pol9b, col="blue", lwd=2, add = TRUE) 
+            plot(y ~ os, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('os, all vars. (-sp), R²=',round(summary(my_fit9)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit9, col='red', lwd=2)  
+            pol9c <- function(os) my_fit9$coefficient[11]*os^2 + my_fit9$coefficient[5]*os + my_fit9$coefficient[1]
+            curve(pol9c, col="blue", lwd=2, add = TRUE)
+            plot(y ~ wd, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('wd, all vars. (-sp), R²=',round(summary(my_fit9)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit9, col='red', lwd=2)  
+            pol9d <- function(wd) my_fit9$coefficient[12]*wd^2 + my_fit9$coefficient[6]*wd + my_fit9$coefficient[1]
+            curve(pol9d, col="blue", lwd=2, add = TRUE) 
+            plot(y ~ od, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('od, all vars. (-sp), R²=',round(summary(my_fit9)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit9, col='red', lwd=2)  
+            pol9e <- function(od) my_fit9$coefficient[13]*od^2 + my_fit9$coefficient[7]*od + my_fit9$coefficient[1]
+            curve(pol9e, col="blue", lwd=2, add = TRUE)
+
+            # elevation + slope + wind slope + wind distance + ocean slope + ocean distance second order ortogonal
+            my_fit10 <- lm(y ~ polym(el,sl,ws,os,wd,od,degree=2))
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('elevation, ort. all vars. (-sp), R²=',round(summary(my_fit10)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            #abline(my_fit10, col='red', lwd=2)  
+            print(my_fit10$coefficient[3])
+            print(my_fit10$coefficient[2])
+            print(my_fit10$coefficient[1])
+            b0 <- my_fit10$coefficient[1] - my_fit10$coefficient[2]*mean(el) + my_fit10$coefficient[3]*(mean(el)^2)
+            b1 <- my_fit10$coefficient[2] - 2*my_fit10$coefficient[3]*mean(el)
+            b2 <- my_fit10$coefficient[3]
+            print(b0)
+            print(b1)
+            print(b2)
+                      
+            pol10 <- function(el) my_fit10$coefficient[3]*el^2 + my_fit10$coefficient[2]*el + my_fit10$coefficient[1]
+            #pol10 <- function(el) b2*el^2 + b1*el + b0
+            print(paste('Prediction el=100 ',pol10(100),sep=''))
+            print(paste('Prediction el=1000 ',pol10(1000),sep=''))
+            curve(pol10, col="blue", lwd=2, add = TRUE)            
+          
+          
+            # elevation + slope + wind slope + wind distance + ocean slope + ocean distance + wind speed
+            my_fit16 <- lm(y ~ el + sl + ws + wd + os + od + sp
+                           + I(el^2) + I(sl^2) + I(ws^2) + I(os^2) + I(wd^2) + I(od^2) + I(sp^2))
+            plot(y ~ el, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('el, all variables, R²=',round(summary(my_fit16)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit16, col='red', lwd=2)             
+            plot(y ~ sl, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('sl, all variables, R²=',round(summary(my_fit16)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit16, col='red', lwd=2)   
+            plot(y ~ sp, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('sp, all variables, R²=',round(summary(my_fit16)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit16, col='red', lwd=2)  
+            plot(y ~ ws, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('ws, all variables, R²=',round(summary(my_fit16)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit16, col='red', lwd=2)  
+            plot(y ~ wd, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('wd, all variables, R²=',round(summary(my_fit16)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit16, col='red', lwd=2)
+            plot(y ~ os, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('os, all variables, R²=',round(summary(my_fit16)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit16, col='red', lwd=2)
+            plot(y ~ od, 
+                main=paste('Cuadrant ',prec_X_values[i],'° ',prec_Y_values[j],'°, month ',k,sep=""), 
+                xlab=paste('od, all variables, R²=',round(summary(my_fit16)$r.squared,digits=2),sep=''), 
+                ylab='P',col='darkgray')
+            abline(my_fit16, col='red', lwd=2)  
+          
+          
+            print('Correlations')
+            print(cor(el,sl))
+            print(cor(el,ws))
+            print(cor(el,os))
+            print(cor(el,wd))
+            print(cor(el,od))
+            print(cor(el,sp))
+            print(cor(sl,ws))
+            print(cor(sl,os))
+            print(cor(sl,wd))
+            print(cor(sl,od))
+            print(cor(sl,sp))
+            print(cor(ws,os))
+            print(cor(ws,wd))
+            print(cor(ws,od))
+            print(cor(ws,sp))
+            print(cor(os,wd))
+            print(cor(os,od))
+            print(cor(os,sp))
+            print(cor(wd,od))
+            print(cor(wd,sp))
+            print(cor(od,sp))
+            
+            print('Elevation + slope 2-nd order')
+            print(summary(my_fit15))
+            print(summary(my_fit17))
+            print('Elevation + slope + wind slope + ocean slope 2-nd order')
+            print(summary(my_fit14)) 
+            print('all vars. (-sp) 2-nd order')
+            print(summary(my_fit9)) 
+            print(summary(my_fit10))
+            
+            # store the centers of cuadrants, regression coefficients and R2 in table
+            # note: the conversion of factor to numeric values require use of levels attribute
+            my_table_line <- c(as.numeric(levels(prec_X_values)[prec_X_values[i]])+0.5,
+                               as.numeric(levels(prec_Y_values)[prec_Y_values[j]])+0.5,
+                               coef(my_fit)[1],coef(my_fit)[2],
+                               summary(my_fit)$r.squared)            
+
+            my_table_prec <- rbind(my_table_prec,my_table_line)
+
+        }
+      }
+    }     
+  }
+
+  my_table_prec <- my_table_prec[-1,]
+  #my_table_prec
+  write.table(my_table_prec, file = paste('table_',list_prec[k],'.csv',sep=""), 
+              sep = ",", row.names = FALSE)
+}
+            
+```
+
+
+
