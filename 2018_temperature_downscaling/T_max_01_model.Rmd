@@ -1,0 +1,184 @@
+---
+title: "T downscaling TMax month 01 model"
+author: "Viacheslav Shalisko"
+date: "16 de abril de 2018"
+output: html_document
+---
+
+
+```{r set-variables}
+# random numbers seed
+set.seed(1)
+
+rpoints_mask1_number <- 10000
+rpoints_mask2_number <- 10000
+
+# month to be analysed (in current version the analysis is per month)
+month <- 1
+
+# dependent variable to be analysed
+var_dependent <- "tmax"
+var_dependent_name <- "Maximum temperature"
+
+# geographic coordinate system string
+mi_crs <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+
+# map extent
+# all data should be in geographic coodinates
+ext_vector <- c(-120,-30,-50,50)
+
+# output directory (relative to curretnt dir)
+output_path <- 'C:/Users/vshal/Downloads/SDM_interpolations/models'
+
+# name of low resolution source dependent variable
+r_lores_name <- "C:/Users/vshal/Downloads/SDM_interpolations/wc2_30s_tmax_01_Amer_F1.tif"
+
+# name of high resolution predictor variable
+r_predictor_name <- "C:/Users/vshal/Downloads/SDM_recortes/gmted_med075_Amer.tif"
+
+# names of first and second high resolution masks
+r_mask1_name <- "C:/Users/vshal/Downloads/SDM_recortes/Continents_Amer_S1a.tif"
+r_mask2_name <- "C:/Users/vshal/Downloads/SDM_recortes/Continents_Amer_S2a.tif"
+
+```
+
+```{r load-libs}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+
+library(raster)       # raster processing
+library(maptools)     # map processing
+library(rworldmap)    # worldmap datasets
+library(rworldxtra)   # hires worldmap spatial dataframe
+library(dismo)        # SDM, here used to generate random points
+library(mgcv)         # GAM models
+```
+
+```{r read-rasters}
+r_lores <- raster(r_lores_name)
+r_predictor <- raster(r_predictor_name)
+r_mask1 <- raster(r_mask1_name)
+r_mask2 <- raster(r_mask2_name)
+```
+
+```{r generate-sampling-points, cache=TRUE}
+random_points_mask1 <- randomPoints(r_mask1, n = rpoints_mask1_number, tryf = 3)
+random_points_mask2 <- randomPoints(r_mask2, n = rpoints_mask2_number, tryf = 5)
+
+dim(random_points_mask1)
+dim(random_points_mask2)
+
+random_points_all <- rbind(random_points_mask1,random_points_mask2)
+```
+
+```{r data-visualization, fig.width=12, fig.height=14}
+# background continents
+plot(random_points_mask1, col='red',cex=0.7, xlim=ext_vector[1:2], ylim=ext_vector[3:4], axes=TRUE)
+world_high <- getMap(resolution = "high")
+plot(world_high, add=TRUE)
+
+# render random points
+points(random_points_mask2,col='blue',cex=0.7)
+```
+
+```{r sample-rasters, cache=TRUE}
+
+values_T <- extract(r_lores, random_points_all)
+values_A <- extract(r_predictor, random_points_all)
+values_Y <- random_points_all[,"y"]
+values_X <- random_points_all[,"x"]
+
+# remove NAs
+intermediate_frame <- data.frame(values_X, values_Y, values_T, values_A)
+intermediate_frame <- na.omit(intermediate_frame)
+
+values_T <- as.vector(intermediate_frame[,3])
+values_A <- as.vector(intermediate_frame[,4])
+values_Y <- as.vector(intermediate_frame[,2])
+values_X <- as.vector(intermediate_frame[,1])
+```
+
+```{r data-summary}
+par(mfrow=c(1, 2))
+hist(values_T, col = "lightgray", xlab = "T (°C)")
+hist(values_A, col = "lightgray", xlab = "Elevation (msnm)")
+```
+
+## Simple models
+
+```{r simple-models, fig.width=12, fig.height=14}
+mod_L1 <- lm(values_T ~ values_A)
+summary(mod_L1)
+AIC(mod_L1)
+
+mod_L2 <- lm(values_T ~ values_A + values_Y)
+summary(mod_L2)
+AIC(mod_L2)
+
+mod_L3 <- lm(values_T ~ values_A + values_Y + I(values_Y^2))
+summary(mod_L3)
+AIC(mod_L3)
+
+mod_A1 <- gam(values_T ~ s(values_A))
+summary(mod_A1)
+AIC(mod_A1)
+gam.check(mod_A1)
+plot(mod_A1,n=1000)
+
+mod_A2 <- gam(values_T ~ s(values_A) + s(values_Y))
+summary(mod_A2)
+AIC(mod_A2)
+gam.check(mod_A2)
+plot(mod_A2,n=1000)
+
+mod_A3 <- gam(values_T ~ values_A + s(values_Y,k=3))
+summary(mod_A3)
+AIC(mod_A3)
+gam.check(mod_A3)
+plot(mod_A3,n=1000)
+```
+
+## Spatial model
+
+```{r spatial-models, fig.width=12, fig.height=14}
+  # spatial multivariate model
+  mod_B1 <- gam(values_T ~ 
+                values_A + 
+                  te(values_A,values_X,values_Y,k=c(2,10),d=c(1,2)) +
+                  s(values_Y,k=3) +
+                  s(values_X,values_Y,k=600), 
+                family=gaussian(link = "identity"),
+                method="REML",
+                na.action = "na.omit")
+  print(summary(mod_B1))
+  print(AIC(mod_B1))
+
+  saveRDS(mod_B1, paste(output_path,"/","model_GAM_B1_",var_dependent,"_m",month,".rds",sep=""))
+```
+
+```{r spatial-model-tests, fig.width=12, fig.height=14}
+gam.check(mod_B1)
+plot(mod_B1,n=1000)
+
+par(mfcol = c(1, 2))
+vis.gam(mod_B1,view=c("values_A","values_X"),n.grid=100,plot.type = "contour")
+vis.gam(mod_B1,view=c("values_A","values_Y"),n.grid=100,plot.type = "contour")
+
+residuals_mod_B1 <- resid(mod_B1, type = "pearson")
+par(mfcol = c(1, 2))
+acf(residuals_mod_B1, main="Standarized residual ACF (GAM)")
+pacf(residuals_mod_B1, main="Standarized residual pACF (GAM)")
+
+# add residuals to spatial points dataframe
+residuals_mod_B1_sp <- SpatialPointsDataFrame(
+                  data.frame(values_X, values_Y), data.frame(resids = residuals_mod_B1),
+                  proj4string = CRS(mi_crs))
+
+# plot residuals
+bubble(residuals_mod_B1_sp, zcol='resids', scales = list(draw = TRUE),
+       col = c("coral", "lightblue"), main = "Distribution of residuals (GAM)",
+       key.space = list("bottom"))
+
+```
+
+

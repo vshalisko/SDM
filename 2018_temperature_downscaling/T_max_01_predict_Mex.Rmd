@@ -1,0 +1,85 @@
+---
+title: "T downscaling TMax month 01 predict Mex"
+author: "Viacheslav Shalisko"
+date: "16 de abril de 2018"
+output: html_document
+---
+
+
+```{r set-variables}
+# random numbers seed
+set.seed(1)
+
+# month to be analysed (in current version the analysis is per month)
+month <- 1
+
+# dependent variable to be analysed
+var_dependent <- "tmax"
+var_dependent_name <- "Maximum temperature"
+
+# geographic coordinate system string
+mi_crs <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+
+# map extent
+# all data should be in geographic coodinates
+ext_vector <- c(-106,-85,14,22)
+
+# output directory (relative to curretnt dir)
+output_path <- 'C:/Users/vshal/Downloads/SDM_interpolations/models'
+
+# name of low resolution source dependent variable
+r_lores_name <- "C:/Users/vshal/Downloads/SDM_recortes_Mex/wc2_30s_tmax_01_Mex_F1.tif"
+
+# name of high resolution predictor variable
+r_predictor_name <- "C:/Users/vshal/Downloads/SDM_recortes_Mex/gmted_med075_Mex.tif"
+
+# names of first and second high resolution masks
+#r_mask1_name <- "C:/Users/vshal/Downloads/SDM_recortes/Continents_Amer_S1a.tif"
+#r_mask2_name <- "C:/Users/vshal/Downloads/SDM_recortes/Continents_Amer_S2a.tif"
+
+```
+
+```{r load-libs}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+
+library(raster)       # raster processing
+library(maptools)     # map processing
+library(rworldmap)    # worldmap datasets
+library(rworldxtra)   # hires worldmap spatial dataframe
+library(dismo)        # SDM, here used to generate random points
+library(mgcv)         # GAM models
+```
+
+```{r read-rasters, fig.width=12}
+r_lores <- raster(r_lores_name)
+r_predictor <- raster(r_predictor_name)
+#r_mask1 <- raster(r_mask1_name)
+#r_mask2 <- raster(r_mask2_name)
+
+plot(r_lores)
+plot(r_predictor)
+#plot(r_mask1)
+#plot(r_mask2)
+```
+
+```{r}
+mod_B1 <- readRDS(paste(output_path,"/","model_GAM_B1_",var_dependent,"_m",month,".rds",sep=""))
+```
+
+```{r raster-predict, fig.width=12}
+# generate lat & lon predictors
+r_X <- init(r_predictor, 'x')
+r_Y <- init(r_predictor, 'y')
+r_stack <- stack(r_predictor,r_X,r_Y)
+names(r_stack) <- c("values_A","values_X","values_Y")
+
+r_predict <- predict(r_stack, mod_B1)
+
+writeRaster(r_predict, filename = paste(output_path, "/", "predict_GAM_B1_", var_dependent, "_m", month, "_Mex.tif", sep=''), 
+           format="GTiff", overwrite=TRUE)
+
+plot(r_predict)
+```
+
+
