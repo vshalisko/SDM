@@ -1,5 +1,5 @@
 ---
-title: "Clip raters and make raster stack"
+title: "Clip raters and make raster stack (prototype)"
 author: "Viacheslav Shalisko"
 date: "14/8/2020"
 output: html_document
@@ -16,6 +16,7 @@ library(dismo)
 ```{r}
 my_extent <- extent(-125, -65, 0, 45)
 
+## load bioclim variables
 my_raster_names <- c()
 ## Read al rasters
 for(i in 1:19) {
@@ -25,15 +26,13 @@ for(i in 1:19) {
   my_raster <- crop(my_raster, my_extent)
   assign(my_raster_names[i], my_raster)
 }
-
-
+my_raster_names
 ```
 
 ```{r}
 #bio_1
 #bio_5
 #plot(bio_1)
-#my_raster_names
 ```
 
 ```{r}
