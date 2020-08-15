@@ -11,13 +11,13 @@ output:
 
 ```{r variables}
 ## Nombre de la especie
-especie <- "Magnolia pugana"
+especie <- "Magnolia pacifica"
 
 ## Prefijo del las capas de salida
-especie_prefijo <- "Magnolia_pugana"
+especie_prefijo <- "Magnolia_pacifica"
 
 ## Nombre del archivo con registro de ocurrencias
-nombre_ocurrencias <- "BasedatosMpuganaJunio19.csv"
+nombre_ocurrencias <- "Basedatospacifica.csv"
 
 ## Nombre del archivo con el conjunto de raster (predictors)
 nombre_rasterstack <- "cur.tif"
