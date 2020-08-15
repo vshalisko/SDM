@@ -1,0 +1,50 @@
+---
+title: "Clip raters and make raster stack"
+author: "Viacheslav Shalisko"
+date: "14/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sp)
+library(raster)
+library(rgdal)
+library(dismo)
+```
+
+```{r}
+my_extent <- extent(-125, -65, 0, 45)
+
+my_raster_names <- c()
+## Read al rasters
+for(i in 1:19) {
+  my_filename <- paste0("D:/Downloads_bak/Climond2/wc2.1_2.5m_bio/wc2.1_2.5m_bio_",i,".tif")
+  my_raster_names <- c(my_raster_names, paste0("bio_",i))
+  my_raster <- raster(my_filename)
+  my_raster <- crop(my_raster, my_extent)
+  assign(my_raster_names[i], my_raster)
+}
+
+
+```
+
+```{r}
+#bio_1
+#bio_5
+#plot(bio_1)
+#my_raster_names
+```
+
+```{r}
+## make raster stack
+#stack_bio19 <- stack(bio_1,bio_2,bio_3)
+stack_bio19 <- stack(mget(as.character(my_raster_names)))
+stack_bio19
+plot(stack_bio19)
+```
+
+```{r}
+writeRaster(stack_bio19, filename = "current_stack_bio19.tif", datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+```
+
