@@ -23,11 +23,6 @@ input_path <- "D:/Downloads_bak/Climond2/wc2.1_2.5m_full_CanESM5_ssp245_2021-204
 output_path <- "D:/Downloads_bak/Climond2/wc2.1_2.5m_clip_CanESM5_ssp245_2021-2040/"
 ```
 
-```{r}
-
-```
-
-
 Tmin
 
 ```{r}
@@ -84,13 +79,21 @@ Biovars
 ## Read al rasters
 my_stack <- stack(paste0(input_path,"wc2.1_2.5m_bioc_CanESM5_ssp245_2021-2040.tif"))
 
+my_raster_names <- c()
 for(i in 1:19) {
   #my_filename <- paste0(input_path,prefijo_archivo,"_bio_",i,".tif")
   my_filename2 <- paste0(output_path,prefijo_archivo,"_bio_clip_",i,".tif")
+  my_raster_names <- c(my_raster_names, paste0("bio_",i))  
   #my_raster <- raster(my_filename)
   my_raster <- subset(my_stack, i, drop=TRUE)
   my_raster <- crop(my_raster, my_extent)
   writeRaster(my_raster, filename = my_filename2, datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+  assign(my_raster_names[i], my_raster)
 }
+
+## Make clipped biovars raster stack
+stack_bio19 <- stack(mget(as.character(my_raster_names)))
+writeRaster(stack_bio19, filename = "future_1_stack_bio19.tif", datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+
 ```
 
