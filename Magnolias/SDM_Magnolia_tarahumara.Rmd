@@ -1,0 +1,276 @@
+---
+title: "Prototipo de script para modelo de distribución de Magnolias"
+author: "Viacheslav Shalisko y Miguel Angel Muñiz Castro"
+date: "23 de julio de 2019 al 15 de agosto de 2020"
+output:
+  html_document: default
+---
+
+# Modelo correlativo de distribución de una especie biológica
+
+
+```{r variables}
+## Nombre de la especie
+especie <- "Magnolia tarahumara"
+
+## Prefijo del las capas de salida
+especie_prefijo <- "Magnolia_tarahumara"
+
+## Nombre del archivo con registro de ocurrencias
+nombre_ocurrencias <- "Basedatostarahumara.csv"
+
+## Nombre del archivo con el conjunto de raster (predictors)
+nombre_rasterstack <- "cur.tif"
+
+## iteraciones de validacion cruzada
+cross_validation_lenght <- 10
+
+## numero de puntos aleatorios del fondo
+background_number = 1000
+```
+
+
+
+
+### Cargar las biblioteces requeridas
+
+```{r}
+library(sp)
+library(raster)
+library(dismo)
+library(rJava)
+```
+
+
+
+```{r subsroutines}
+maxent.select.contribution <- function (m,n) {
+  # parametros: m - objeto del model maxent, n - vector de nombres de variables raster
+  resultados <- m@results
+  tabla_resultados <- data.frame(t(rep(NA,3)))
+  names(tabla_resultados) <- c('variable','contribution','permutation.importance')
+  for (i in 1:length(n)) {
+    variable1_name <- paste(n[i],'.contribution',sep='')
+    variable1_value <- resultados[variable1_name,1]
+    variable2_name <- paste(n[i],'.permutation.importance',sep='')
+    variable2_value <- resultados[variable2_name,1]
+    tabla_resultados <- rbind(tabla_resultados,c(n[i],variable1_value,variable2_value))
+  }
+  tabla_resultados <- tabla_resultados[-1,]
+  return(tabla_resultados)
+}
+```
+
+
+## Lectura de los archivos fuente
+### 1) GeoTIFF con 19 capas dd variables BIOCLIM (WorldClim 2)
+
+```{r}
+# raster con variables BIOCLIM y ENVIREM (WorldClim 2)
+bio_vars <- stack(nombre_rasterstack)
+names(bio_vars) <- c(paste0("b_",1:19),paste0("e_",1:16))
+bio_vars
+
+nombres_variables <- names(bio_vars)
+
+plot(bio_vars,c(1:9), col = grey(1:100/100), nc=3)
+plot(bio_vars,c(10:18), col = grey(1:100/100), nc=3)
+```
+
+### 2) Tabla GBiF con registros de presencia
+
+```{r}
+# tabla de registrois de ocurrencia
+ocurrencias <- read.csv(nombre_ocurrencias)
+dim(ocurrencias)
+str(ocurrencias)
+
+levels(ocurrencias$species)
+
+```
+
+### 3) Generar mascara de tierra firme
+
+```{r}
+mask_reclass_table <- matrix(c(-Inf, Inf, 1), ncol=3, byrow=TRUE)
+bio_vars_mask <- reclassify(subset(bio_vars,1),mask_reclass_table)
+
+# representar todos registros
+plot(bio_vars_mask, legend = FALSE, main = "Puntos de presencia")
+points(ocurrencias$decimalLongitude, ocurrencias$decimalLatitude, cex = 0.5)
+
+```
+
+# Analisis con validación cruzada
+## 4) Generar puntos aleatorios para muestreo de la variabilidad ambiental en zona de tierra firme
+## 5) Seleccionar la especie de interés (solo columnas de nombre de especie y coordenadas)
+## 6) Subdividir datos en dos juegos: entranamiento y control
+## 7) Inferir el modelo de entropía máxima
+ Para lograr que funciona la aplicacipón se requiere descargar y manualmente copiar al carpeta correspondiente el 
+ archivo **maxent.jar**, la carpeta es donde en su computadora se instalan los modulos de usuario, por ejemplo: 
+ Documents/R/win-library/3.6/dismo/java/
+## 8) Evaluación del modelo
+
+```{r cv-maxent, fig.width=8, fig.height=8}
+validacion_cruzada <- list()
+
+for (i in 1:cross_validation_lenght){
+  par(mfrow=c(1, 1))
+  set.seed(i)
+          
+  puntos_aleatorios_fondo <- randomPoints(bio_vars_mask, background_number)
+  
+  ocurrencias_especie <- ocurrencias[ocurrencias$Especie == especie,c("Especie","Long","Lat")]
+  
+  dim(ocurrencias_especie)
+  head(ocurrencias_especie)
+  
+  # separar datos
+  fold <- kfold(ocurrencias_especie, k = 4)
+  
+  ocurrencias_especie_entrenamiento <- ocurrencias_especie[ fold != 4, ]
+  ocurrencias_especie_control <- ocurrencias_especie[ fold == 4, ]
+  
+  plot(bio_vars_mask, legend = FALSE, main = "Puntos de presencia de la especie y muestreo")
+  points(puntos_aleatorios_fondo, col = "blue", cex = 0.5, pch = 3)
+  points(ocurrencias_especie_control[,2], ocurrencias_especie_control[,3], 
+         col = "red", cex = 0.8, pch = 19)
+  points(ocurrencias_especie_entrenamiento[,2], ocurrencias_especie_entrenamiento[,3], 
+         col = "black", cex = 0.8, pch = 19)
+  
+  modelo_maxent <- maxent(x = bio_vars, 
+                          p = ocurrencias_especie_entrenamiento[,2:3],
+                          a = puntos_aleatorios_fondo,
+                          args=c(
+                          'removeDuplicates=TRUE', 
+                          'jackknife=TRUE',
+                          'responsecurves=TRUE',
+                          'threads=2',
+                          'linear=TRUE',
+                          'quadratic=TRUE',
+                          'hinge=FALSE',
+                          'product=FALSE'
+                        ))
+  
+  
+  plot(modelo_maxent)
+  print(response(modelo_maxent))
+
+  contribuciones_variables <- maxent.select.contribution(modelo_maxent,
+                                                         nombres_variables)
+  
+  #contribuciones
+  par(mfrow=c(1, 2))
+  dotchart(as.numeric(contribuciones_variables[,2]),
+          col='blue', pch=16,
+          labels=contribuciones_variables[,1],
+          main='predictor contribution')
+  dotchart(as.numeric(contribuciones_variables[,3]),
+          col='red', pch=16,
+          labels=contribuciones_variables[,1],
+          main='predictor importance in permutations')
+  
+  evaluacion <- evaluate(p = ocurrencias_especie_control[,2:3], 
+                a = puntos_aleatorios_fondo, 
+                x = bio_vars,
+                model = modelo_maxent)
+  print(evaluacion)
+  
+  par(mfrow=c(1, 3))
+  plot(evaluacion, 'ROC')
+  density(evaluacion)
+  boxplot(evaluacion, col=c('lightblue','coral'), notch=TRUE)
+  
+  umbrales <- threshold(evaluacion)
+  print(umbrales)
+  
+  print(umbrales$spec_sens)
+  
+  iteracion <- list()
+  iteracion$fondo <- puntos_aleatorios_fondo
+  iteracion$entrenamiento <- ocurrencias_especie_entrenamiento
+  iteracion$control <- ocurrencias_especie_control
+  iteracion$modelo <- modelo_maxent
+  iteracion$evaluacion <- evaluacion
+  iteracion$umbrales <- umbrales
+  iteracion$contribuciones <- contribuciones_variables
+  
+  validacion_cruzada[[i]] <- iteracion
+
+}
+
+```
+
+## 9) Guardar el objeto de modelo para el uso futuro
+
+```{r}
+#str(validacion_cruzada)
+saveRDS(validacion_cruzada, paste0(especie_prefijo,"_object_cv",cross_validation_lenght,".rds"))
+```
+
+
+## 10) Predicción en validación cruzada (current conditions)
+
+```{r}
+
+for (i in 1:cross_validation_lenght){
+  my_obj <- validacion_cruzada[[i]]
+  prediccion <- predict(bio_vars, my_obj$modelo, progress='window')
+  prediccion
+  plot(prediccion, 
+       main = paste("Probabilidad de presencia estimada ",i,sep=""))
+  
+  writeRaster(prediccion, 
+              filename = paste(especie_prefijo,"_cur_probabilidad_32bits_iteracion_",
+                               i,".tif",sep = ""), 
+             format="GTiff", datatype = "FLT4S", overwrite = TRUE)
+  
+ especie_reclass_table <- matrix(c(-Inf, my_obj$umbrales$spec_sens, 0, 
+                                my_obj$umbrales$spec_sens, Inf, 1), 
+                              ncol=3, byrow=TRUE)
+ prediccion_presencia <- reclassify(prediccion,especie_reclass_table)
+ plot(prediccion_presencia, legend = FALSE,
+      main = paste("Probable presencia binaria ",i,sep = ""))
+  writeRaster(prediccion_presencia, 
+              filename = paste(especie_prefijo,"_cur_presencia_16bits_iteracion_",
+                               i,".tif", sep = ""), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+}
+```
+
+## 11) Predicción en validación cruzada (econdiciones futuras)
+#### De caracter experimental, por lo general se requiere tenerlo en un script por separado
+
+```{r}
+## Nombre del archivo con el conjunto de raster (predictors)
+nombre_rasterstack <- "fut1.tif"
+bio_vars <- stack(nombre_rasterstack)
+names(bio_vars) <- c(paste0("b_",1:19),paste0("e_",1:16))
+bio_vars
+
+## prediction
+for (i in 1:cross_validation_lenght){
+  my_obj <- validacion_cruzada[[i]]
+  prediccion <- predict(bio_vars, my_obj$modelo, progress='window')
+  prediccion
+  plot(prediccion, 
+       main = paste("Probabilidad de presencia estimada ",i,sep=""))
+  
+  writeRaster(prediccion, 
+              filename = paste(especie_prefijo,"_fut1_probabilidad_32bits_iteracion_",
+                               i,".tif",sep = ""), 
+             format="GTiff", datatype = "FLT4S", overwrite = TRUE)
+  
+ especie_reclass_table <- matrix(c(-Inf, my_obj$umbrales$spec_sens, 0, 
+                                my_obj$umbrales$spec_sens, Inf, 1), 
+                              ncol=3, byrow=TRUE)
+ prediccion_presencia <- reclassify(prediccion,especie_reclass_table)
+ plot(prediccion_presencia, legend = FALSE,
+      main = paste("Probable presencia binaria ",i,sep = ""))
+  writeRaster(prediccion_presencia, 
+              filename = paste(especie_prefijo,"_fut1_presencia_16bits_iteracion_",
+                               i,".tif", sep = ""), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+}
+```
+
