@@ -1,0 +1,99 @@
+---
+title: "Clip climatic raters"
+author: "Viacheslav Shalisko"
+date: "14/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sp)
+library(raster)
+library(rgdal)
+library(dismo)
+```
+
+```{r}
+my_extent <- extent(-125, -65, 0, 45)
+
+months <- c("01","02","03","04","05","06","07","08","09","10","11","12")
+
+prefijo_archivo <- "wc2.1_2.5m_CanESM5_ssp245_2061-2080"
+input_path <- "D:/Downloads_bak/Climond2/wc2.1_2.5m_full_CanESM5_ssp245_2061-2080/"
+output_path <- "D:/Downloads_bak/Climond2/wc2.1_2.5m_clip_CanESM5_ssp245_2061-2080/"
+```
+
+Tmin
+
+```{r}
+## Read al rasters
+my_stack <- stack(paste0(input_path,"wc2.1_2.5m_tmin_CanESM5_ssp245_2061-2080.tif"))
+
+
+for(i in 1:12) {
+  #my_filename <- paste0(input_path,prefijo_archivo,"_tmin_",months[i],".tif")
+  my_filename2 <- paste0(output_path,prefijo_archivo,"_tmin_clip_",months[i],".tif")
+  #my_raster <- raster(my_filename)
+  my_raster <- subset(my_stack, i, drop=TRUE)
+  my_raster <- crop(my_raster, my_extent)
+  writeRaster(my_raster, filename = my_filename2, datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+}
+```
+
+Tmax
+
+```{r}
+## Read al rasters
+my_stack <- stack(paste0(input_path,"wc2.1_2.5m_tmax_CanESM5_ssp245_2061-2080.tif"))
+
+for(i in 1:12) {
+  #my_filename <- paste0(input_path,prefijo_archivo,"_tmax_",months[i],".tif")
+  my_filename2 <- paste0(output_path,prefijo_archivo,"_tmax_clip_",months[i],".tif")
+  #my_raster <- raster(my_filename)
+  my_raster <- subset(my_stack, i, drop=TRUE)
+  my_raster <- crop(my_raster, my_extent)
+  writeRaster(my_raster, filename = my_filename2, datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+}
+```
+
+Prec
+
+```{r}
+## Read al rasters
+my_stack <- stack(paste0(input_path,"wc2.1_2.5m_prec_CanESM5_ssp245_2061-2080.tif"))
+
+for(i in 1:12) {
+  #my_filename <- paste0(input_path,prefijo_archivo,"_prec_",months[i],".tif")
+  my_filename2 <- paste0(output_path,prefijo_archivo,"_prec_clip_",months[i],".tif")
+  #my_raster <- raster(my_filename)
+  my_raster <- subset(my_stack, i, drop=TRUE)
+  my_raster <- crop(my_raster, my_extent)
+  writeRaster(my_raster, filename = my_filename2, datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+}
+```
+
+
+Biovars
+
+```{r}
+## Read al rasters
+my_stack <- stack(paste0(input_path,"wc2.1_2.5m_bioc_CanESM5_ssp245_2061-2080.tif"))
+
+my_raster_names <- c()
+for(i in 1:19) {
+  #my_filename <- paste0(input_path,prefijo_archivo,"_bio_",i,".tif")
+  my_filename2 <- paste0(output_path,prefijo_archivo,"_bio_clip_",i,".tif")
+  my_raster_names <- c(my_raster_names, paste0("bio_",i))  
+  #my_raster <- raster(my_filename)
+  my_raster <- subset(my_stack, i, drop=TRUE)
+  my_raster <- crop(my_raster, my_extent)
+  writeRaster(my_raster, filename = my_filename2, datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+  assign(my_raster_names[i], my_raster)
+}
+
+## Make clipped biovars raster stack
+stack_bio19 <- stack(mget(as.character(my_raster_names)))
+writeRaster(stack_bio19, filename = "future_3_stack_bio19.tif", datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+
+```
+
