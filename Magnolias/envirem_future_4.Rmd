@@ -1,0 +1,61 @@
+---
+title: "Envirem"
+author: "Viacheslav Shalisko"
+date: "14/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sp)
+library(raster)
+library(rgdal)
+library(dismo)
+library(envirem)
+
+```
+
+```{r}
+## read in a climatic raster for use as a template
+rasterTemplate <- raster('D:/Downloads_bak/Climond2/wc2.1_2.5m_clip_CanESM5_ssp245_2081-2100/wc2.1_2.5m_CanESM5_ssp245_2081-2100_tmax_clip_01.tif')
+
+## calculate monthly solar radiation, defined for the year 2030, output to the current directory
+ETsolradRasters(rasterTemplate = rasterTemplate, year = 140, 
+                outputDir = 'D:/Downloads_bak/Climond2/wc2.1_2.5m_clip_CanESM5_ssp245_2081-2100/', overwrite = TRUE)
+```
+
+```{r}
+wcFiles <- list.files('D:/Downloads_bak/Climond2/wc2.1_2.5m_clip_CanESM5_ssp245_2081-2100/', pattern = 'wc2.1_2.5m', full.names = TRUE)
+wcStack <- stack(wcFiles)
+names(wcStack)
+#str(wcStack)
+
+solarFiles <- list.files('D:/Downloads_bak/Climond2/wc2.1_2.5m_clip_CanESM5_ssp245_2081-2100/', pattern = 'et_solrad', full.names = TRUE)
+solarStack <- stack(solarFiles)
+```
+
+
+```{r}
+## note that "-" symbol in names is replaced by "."
+assignNames(tmax = "wc2.1_2.5m_CanESM5_ssp245_2081.2100_tmax_clip_##",
+            tmin = "wc2.1_2.5m_CanESM5_ssp245_2081.2100_tmin_clip_##",
+            precip = "wc2.1_2.5m_CanESM5_ssp245_2081.2100_prec_clip_##",
+            solrad = "et_solrad_##"
+            )
+
+varnames()
+verifyFileStructure('D:/Downloads_bak/Climond2/wc2.1_2.5m_clip_CanESM5_ssp245_2081-2100/', returnFileNames = FALSE)
+
+# We can verify that variable names will be correctly recognized.
+verifyRasterNames(masterstack = wcStack, solradstack = solarStack)
+```
+
+```{r}
+
+env_rasters <- layerCreation(masterstack = wcStack, solradstack = solarStack, var = 'all')
+plot(env_rasters)
+
+writeRaster(env_rasters, filename = "future_stack_envirem16_CanESM5_ssp245_2081-2100.tif", datatype = "FLT4S",format = "GTiff", overwrite = TRUE) 
+
+```
+
