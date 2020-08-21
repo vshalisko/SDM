@@ -1,0 +1,133 @@
+---
+title: "Script para integración de resultados de prediccion en CV"
+author: "Viacheslav Shalisko y Miguel Angel Muñiz Castro"
+date: "21/8/2020"
+output: html_document
+---
+
+```{r variables}
+## Nombre de la especie
+especie <- "Magnolia vallartensis"
+
+## Prefijo del las capas de salida
+especie_prefijo <- "Magnolia_vallartensis1"
+
+## iteraciones de validacion cruzada
+cross_validation_lenght <- 20
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+library(sp)
+library(raster)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_cur_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_cur_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut1_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_fut1_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut2_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_fut2_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut3_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_fut3_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut4_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_fut4_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut5_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_fut5_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut6_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_fut6_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut7_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_fut7_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut8_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+writeRaster(curSum, filename = paste0(especie_prefijo,"_fut8_presencia_sum.tif"), 
+             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
