@@ -1,0 +1,347 @@
+---
+title: "Script para integración de resultados de prediccion en CV"
+author: "Viacheslav Shalisko y Miguel Angel Muñiz Castro"
+date: "21/8/2020"
+output: html_document
+---
+
+```{r variables}
+## Nombre de la especie
+especie <- "Magnolia pacifica"
+
+## Prefijo del las capas de salida
+especie_prefijo <- "Magnolia_pacifica1"
+
+## iteraciones de validacion cruzada
+cross_validation_lenght <- 20
+
+## replicas de bootstrap
+bootstrap_length <- 100
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+library(sp)
+library(raster)
+library(rgdal)
+library(rgeos)
+
+# Bootstrap 95% CI for R-Squared
+library(boot)
+
+mi_crs_lcc <- CRS("+proj=lcc +lat_1=17.5 +lat_2=29.5 +lat_0=12 +lon_0=‐102 +x_0=2500000 +y_0=0 +units=m +ellps=GRS80 +datum=WGS84")
+
+
+```
+
+```{r}
+
+area_umb <- function (mi_stack, umbral) {
+ ## calcular sumas de umbral
+ data_sum_raster <- sum(mi_stack)
+ #plot(data_sum_raster)
+ 
+ ## reclasificar con el umbral 
+ reclass_table <- matrix(c(-Inf, umbral, NA, 
+                                    umbral, Inf, 1), 
+                                    ncol=3, byrow=TRUE)
+ mi_raster_umb <- reclassify(data_sum_raster,reclass_table)
+ print(mi_raster_umb)
+ #res(mi_raster_umb)
+ 
+ ## reproyectora a LCC
+ mi_raster_umb_lcc <- projectRaster(mi_raster_umb, crs = mi_crs_lcc)
+ print(mi_raster_umb_lcc) 
+ 
+ ## convertir a vectoriales
+ mi_raster_umb_pol <- rasterToPolygons(mi_raster_umb_lcc, n = 4, na.rm = TRUE, digits = 12, dissolve = TRUE)
+ #print(mi_raster_umb_pol)
+ 
+ plot(mi_raster_umb_pol)
+ 
+ #calcular area [m2] del poligono
+ sqm <- gArea(mi_raster_umb_pol)
+ #convert sqm to km2
+ sqkm <- sqm / 1000000
+ print(sqkm)
+ return(sqkm)  
+}
+
+area_umb_boot <- function (data, umbral, raster_mask, indices) {
+ ## rutina para calcular area de presencia en 50% de los casos a partir del juego de posibles areas de presencia
+ ## con los intevalo de confinanza por medio de bootstrap
+ ## data debe contener el dataframe con las líneas que corresponden a cada raster de stack original
+ ## raster_mask es el molde para reconstruir el raster con caracteristicas del original, 
+ ##  pero con sumas derivadas de bootstrap
+
+ ## acceder a los índices de bootstrap  
+ #print(indices)
+
+ ## revisar otros datos de entrada
+ #print(data)
+ #print(reclass_table)
+ #print(raster_mask)  
+
+ ## extraer la muestra con bootstrap
+ data <- data[indices,]
+ 
+ ## calcular sumas por pixel (en dataframe)
+ data_sum <- apply(data, 2, FUN = sum, na.rm = TRUE)
+ 
+ ## recuperar formato raster asignando resultados de sumas a los pixeles del raster molde
+ data_sum_raster <- setValues(x = raster_mask, values = data_sum)
+
+ ## reclasificar con el umbral 
+ reclass_table <- matrix(c(-Inf, umbral, NA, 
+                                    umbral, Inf, 1), 
+                                    ncol=3, byrow=TRUE)
+ mi_raster_umb <- reclassify(data_sum_raster,reclass_table)
+ print(mi_raster_umb)
+ #res(mi_raster_umb)
+ 
+ ## reproyectora a LCC
+ mi_raster_umb_lcc <- projectRaster(mi_raster_umb, crs = mi_crs_lcc)
+ print(mi_raster_umb_lcc) 
+ 
+ ## convertir a vectoriales
+ mi_raster_umb_pol <- rasterToPolygons(mi_raster_umb_lcc, n = 4, na.rm = TRUE, digits = 12, dissolve = TRUE)
+ #print(mi_raster_umb_pol)
+ 
+ plot(mi_raster_umb_pol)
+ 
+ #calcular area [m2] del poligono
+ sqm <- gArea(mi_raster_umb_pol)
+ #convert sqm to km2
+ sqkm <- sqm / 1000000
+ print(sqkm)
+ return(sqkm)
+}
+```
+
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_cur_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_cur_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut1_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_fut1_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut2_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_fut2_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut3_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_fut3_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut4_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_fut4_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut5_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_fut5_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut6_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_fut6_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut7_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_fut7_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+```{r}
+curFiles <- paste0(especie_prefijo,'_fut8_presencia_16bits_iteracion_',1:cross_validation_lenght,".tif")
+curFiles
+
+curStack <- stack(curFiles)
+curSum <- sum(curStack)
+plot(curSum)
+
+#area_umb(curStack, 10)
+
+## preparar datos para bootstrap
+cur_data <- t(getValues(curStack))
+
+## bootstrapping with 1000 replications
+boot_data <- boot(data = cur_data, raster_mask = subset(curStack,1), statistic = area_umb_boot, R = bootstrap_length, umbral = 10)
+
+# view results
+boot_data
+plot(boot_data)
+boot.ci(boot_data, type="bca")
+
+#writeRaster(curSum, filename = paste0(especie_prefijo,"_fut8_presencia_sum.tif"), 
+#             format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
