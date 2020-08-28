@@ -1,0 +1,134 @@
+---
+title: "Script para prediccion con modelo de distribución de Magnolias"
+author: "Viacheslav Shalisko y Miguel Angel Muñiz Castro"
+date: "23 de julio de 2019 al 15 de agosto de 2020"
+output:
+  html_document: default
+---
+
+# Modelo correlativo de distribución de una especie biológica
+
+
+```{r variables}
+## Nombre de la especie
+especie <- "Magnolia vallartensis"
+
+## Prefijo del las capas de salida
+especie_prefijo <- "Magnolia_vallartensis1"
+
+## Nombre del archivo con registro de ocurrencias
+nombre_ocurrencias <- "MagnOccMx.csv"
+
+## Nombre del archivo con el conjunto de raster (predictors)
+nombre_rasterstack <- "cur.tif"
+
+## iteraciones de validacion cruzada
+cross_validation_lenght <- 20
+
+## numero de puntos aleatorios del fondo
+background_number = 1000
+
+## ruta a predicciones
+especie_path <- "../../bot_Magnolia_SDM/Productos_current1/"
+```
+
+### Cargar las biblioteces requeridas
+
+```{r}
+library(sp)
+library(raster)
+library(dismo)
+library(rJava)
+library(ENMeval)
+```
+
+## 1) Carger el objeto de modelo
+
+```{r cross-validation-load}
+validacion_cruzada <- readRDS(paste0(especie_prefijo,"_object_cv",cross_validation_lenght,".rds"))
+
+str(validacion_cruzada[[1]])
+```
+
+```{r}
+evaluate.mdl <- function (pnt,bkg,rast,mdl) {
+  # pnt - presence points, bkg - background points, rast - raster dataset, mdl - model
+  result <- list()
+  values_bkg <- extract(rast, bkg)
+  values_pnt <- extract(rast, pnt)
+  values_pnt_bkg <- rbind(values_bkg, values_pnt)
+  result$e <- evaluate(values_pnt, values_pnt_bkg, mdl)
+  print(result$e)
+  par(mfrow=c(2, 2))
+  plot(result$e, 'TPR')
+  plot(result$e, 'ROC')
+  density(result$e)
+  boxplot(result$e, col=c('lightblue','coral'), notch=TRUE)
+  
+  result$t <- threshold(result$e)
+  print(result$t)
+  
+  result$v_bkg <- values_bkg
+  result$v_pnt <- values_pnt
+  
+  return(result)
+}
+
+```
+
+```{r}
+nombre_rasterstack <- "cur.tif"
+bio_vars <- stack(nombre_rasterstack)
+names(bio_vars) <- c(paste0("b_",1:19),paste0("e_",1:16))
+bio_vars
+
+```
+
+#### estimate AICc for each model in CV
+
+```{r estimate-aicc}
+for (i in 1:cross_validation_lenght){
+  my_obj <- validacion_cruzada[[i]]  
+  maxent_params <- get.params(my_obj$modelo)
+  nombre_raster <- paste0(especie_path,especie_prefijo,"_cur_probabilidad_32bits_iteracion_",i,".tif")
+  prediction <- raster(nombre_raster)
+  observations <- rbind(my_obj$entrenamiento[,2:3],my_obj$control[,2:3])  
+  maxent_aicc <- calc.aicc(maxent_params, observations, prediction)
+  print(maxent_aicc)
+}
+```
+
+#### Evaluate model with control dataset
+
+```{r evaluate-model-control-data, fig.width=10, fig.height=10}
+for (i in 1:cross_validation_lenght){
+  my_obj <- validacion_cruzada[[i]]
+  evalutaion_test <- evaluate.mdl(my_obj$control[,2:3], my_obj$fondo, bio_vars, my_obj$modelo)
+  print(str(evalutaion_test))
+}
+```
+
+
+
+```{r null-model-auc-training}
+#### Rank model AUC comparing to 99 null-models
+# valores_puntos_aleatorios_fondo_y_entrenamiento <- rbind(evalutaion_training$v_pnt, evalutaion_training$v_bkg)
+# rep <- 99     # number or null models to produce
+# null_models <- list()
+# for (r in 1:rep) {
+#     # following Robert J. Hijmans nullRandom() function from 'dismo'
+# 		# sample presence records and set the rest of records as absence
+# 		index <- sample(nrow(valores_puntos_aleatorios_fondo_y_entrenamiento), presence_points_count)
+# 		pres <- valores_puntos_aleatorios_fondo_y_entrenamiento[index, ]
+# 		absc <- valores_puntos_aleatorios_fondo_y_entrenamiento[-index, ]
+# 		d <- data.frame(rbind(pres, absc))
+# 		v <- c(rep(1, nrow(pres)), rep(0, nrow(absc)))
+# 		# make null-model with presence and absence sets
+# 		m <- maxent(d, v)
+# 		# evaluate the null-model
+# 		null_models[[r]] <- evaluate(pres, absc, m)
+# }
+
+```
+
+
