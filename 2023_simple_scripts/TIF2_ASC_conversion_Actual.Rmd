@@ -1,0 +1,83 @@
+---
+title: "Recorte, remuestreo y conversion to TIFF y ASC"
+author: "Viacheslav Shalsiko"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+library(sp)
+library(rgdal)
+library(raster)
+library(terra)     # usar TERRA para caso de capas de datos CHELSA, por tener offset y scale
+
+## resumen de condiciones del entorno
+sessionInfo()
+
+## consultar lista de drivers GDAL disponibles en sistema
+# gdal(drivers=TRUE)
+```
+
+```{r}
+clip_layer <- readOGR("../Magnolia_CA/Rectangulo_MCA.shp")
+#molde_layer <- "../ENM_M_Pugana/Capas/Actual_test_clip/CHELSA_tasmin_01_1981-2010_V.2.1_ok.tif"
+
+in_dir <- "../scripts/D1/"
+out_tif_dir <- "../scripts/Actual_tif_clip/"
+out_asc_dir <- "../scripts/Actual_asc_clip/"
+```
+
+## Archivos a procesar
+
+```{r}
+infiles <- list.files(in_dir, pattern = '.tif', full.names = TRUE)
+infiles
+infiles_names <- list.files(in_dir, pattern = '.tif', full.names = FALSE)
+infiles_names
+```
+
+## Primer capa se usara como molde para recorte y remuestreo de los demas
+
+```{r}
+
+## para lectura de raster usamos rast de terra en lugar de raster de raster
+first_raster <- rast(infiles[1])
+first_raster
+first_raster <- crop(first_raster, clip_layer)
+first_raster <- setMinMax(first_raster)
+first_raster
+plot(first_raster)
+```
+
+## Los demás capas se van a remuestrear de acuerdo con primer raster
+
+```{r messages = TRUE}
+
+#for (i in 1:2) {
+for (i in 1:length(infiles)) {
+
+  message(paste("Leyendo:", infiles[i]))
+
+  current_raster <- rast(infiles[i])
+  #current_raster <- raster(current_raster)
+  current_raster <- crop(current_raster, clip_layer)
+  current_raster <- raster::resample(current_raster, first_raster, method="near")
+  
+  print(current_raster)
+  #str(current_raster)
+  #current_raster[is.na(current_raster[])] <- -9999
+  #NAvalue(current_raster) <- -9999
+  current_raster <- setMinMax(current_raster)
+  plot(current_raster, main = infiles_names[i])
+  
+  message(paste("Guardando:", infiles_names[i]))
+  
+  filename_wo_extension <- sub('\\.tif$', '', infiles_names[i])
+  writeRaster(current_raster, filename = paste0(out_tif_dir, filename_wo_extension, ".tif"), 
+              filetype="GTiff", datatype = "FLT4S", overwrite = TRUE, NAflag = -9999)
+  writeRaster(current_raster, filename = paste0(out_asc_dir, filename_wo_extension, ".asc"), 
+             filetype="AAIGrid", datatype = "FLT4S", overwrite = TRUE, NAflag = -9999)
+}
+  
+```
+
