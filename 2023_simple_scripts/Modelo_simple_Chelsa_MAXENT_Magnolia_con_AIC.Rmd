@@ -1,0 +1,375 @@
+---
+title: "Modelo simple Magnolia"
+author: "Viacheslav Shalsiko"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Definir variables
+
+```{r}
+file_prefix <- "run1_maxent"
+taxon <- "Magnolia"
+predictors <- 1:35
+```
+
+## Preparar el entorno
+
+```{r}
+library(sp)
+library(rgdal)
+library(raster)
+library(dismo)
+library(rJava)
+library(rworldmap)
+library(rworldxtra)
+
+sessionInfo()
+```
+
+## Cargar puntos de presencia
+
+```{r puntos-presencia}
+ocurrencias <- read.csv("occurence/occurences_combinado.csv")
+dim(ocurrencias)
+
+str(ocurrencias[,c("species","decimalLongitude","decimalLatitude")])
+
+ocurrencias <- ocurrencias[,c("species","decimalLongitude","decimalLatitude")]
+ocurrencias$species <- as.factor(ocurrencias$species)
+head(ocurrencias)
+```
+
+## Visualizar Puntos de presencia
+
+```{r}
+mundo <- getMap(resolution = "high")
+plot(mundo, axes = TRUE, xlim = c(-100,-80), ylim = c(0,25))
+points(ocurrencias$decimalLongitude, ocurrencias$decimalLatitude, cex = 0.5, col = "red")
+```
+
+## Cargar datos ambientales
+
+```{r predictores-ambientales, cache = TRUE}
+bio_vars <- stack("../scripts/Actual_tif_clip_bio/bioclim_19_envirem_16.tif")
+names(bio_vars) <- c(paste0('b',1:19),paste0('e',1:16))
+bio_vars
+
+plot(bio_vars, c(1:6), col = grey(1:100/100), nc=3)
+plot(bio_vars, c(7:12), col = grey(1:100/100), nc=3)
+plot(bio_vars, c(13:18), col = grey(1:100/100), nc=3)
+plot(bio_vars, c(19:24), col = grey(1:100/100), nc=3)
+plot(bio_vars, c(25:30), col = grey(1:100/100), nc=3)
+plot(bio_vars, c(31:35), col = grey(1:100/100), nc=3)
+
+mask_reclass_table <- matrix(c(-Inf, 0, NA, 0, Inf, 1), ncol=3, byrow=TRUE)
+## in CHELSA dataset the layer BIO12 cannot be used to produce mask
+# bio_vars_mask <- reclassify(subset(bio_vars, 12), mask_reclass_table)
+bio_vars_mask <- rasterize(mundo, subset(bio_vars,1))
+bio_vars_mask <- reclassify(bio_vars_mask, mask_reclass_table)
+plot(bio_vars_mask, legend = FALSE, main = "Mascara del continente")
+```
+
+## Definir conjuntos de puntos de entrenamiento y de control
+
+```{r visualizacion, fig.width = 8, fig.height = 8, cache = TRUE}
+set.seed(1)
+
+fold <- kfold(ocurrencias, k = 5)
+ocurrencias_entrenamiento <- ocurrencias[ fold != 1, ]
+ocurrencias_control <- ocurrencias[ fold == 1, ]
+dim(ocurrencias_entrenamiento)
+dim(ocurrencias_control)
+
+## eliminar celdas repetidas en entrenamiento y control
+ocurrencias_entrenamiento <- ocurrencias_entrenamiento[!duplicated(
+                raster::cellFromXY(bio_vars_mask, ocurrencias_entrenamiento[,2:3])),]
+ocurrencias_control <- ocurrencias_control[!duplicated(
+                raster::cellFromXY(bio_vars_mask, ocurrencias_control[,2:3])),]
+dim(ocurrencias_entrenamiento)
+dim(ocurrencias_control)
+
+plot(mundo, axes = TRUE, xlim = c(-100,-80), ylim = c(0,25),
+     main = paste0("Puntos de entrenamiento y de control de ",taxon))
+points(ocurrencias_entrenamiento$decimalLongitude, ocurrencias_entrenamiento$decimalLatitude, 
+       cex = 0.5, col = "red")
+points(ocurrencias_control$decimalLongitude, ocurrencias_control$decimalLatitude, 
+       cex = 0.5, col = "blue")
+
+puntos_aleatorios_fondo <- randomPoints(bio_vars_mask, 1000)
+points(puntos_aleatorios_fondo, col = "gray", cex = 0.5, pch = 3)
+```
+
+## Realizar muestreo de valores ambientales
+
+```{r muestreo, cache = TRUE}
+x_presencia <- extract(subset(bio_vars, predictors), ocurrencias_entrenamiento[,2:3])
+x_control <- extract(subset(bio_vars, predictors), ocurrencias_control[,2:3])
+x_fondo <- extract(subset(bio_vars, predictors), puntos_aleatorios_fondo)
+
+# generar vector de presincias (1) y valores del fondo (0)
+y <- c(rep(1, dim(ocurrencias_entrenamiento)[1]),
+       rep(0, dim(puntos_aleatorios_fondo)[1]))
+x <- rbind(x_presencia, x_fondo)
+
+specie_entrenamiento <- as.data.frame(cbind(x,y))
+dim(specie_entrenamiento)
+
+#str(specie_entrenamiento)
+head(specie_entrenamiento)
+
+y_c <- c(rep(1, dim(ocurrencias_control)[1]),
+       rep(0, dim(puntos_aleatorios_fondo)[1]))
+x_c <- rbind(x_control, x_fondo)
+
+specie_control <- as.data.frame(cbind(x_c,y_c))
+dim(specie_control)
+```
+
+## Construir el modelo MAXENT
+
+```{r modelo, cache = TRUE}
+jar <- paste(system.file(package='dismo'), '/java/maxent.jar', sep='')
+modelo_maxent <- c()
+if (file.exists(jar)) {
+  # modelo_maxent <- maxent(
+  #                       x = bio_vars,
+  #                       p = ocurrencias_entrenamiento[,2:3],
+  #                       a = puntos_aleatorios_fondo,
+  #                       silent = FALSE,
+  #                       args=c(
+  #                         'removeDuplicates=TRUE', 
+  #                         'jackknife=TRUE',
+  #                         'responsecurves=TRUE',
+  #                         'threads=2',
+  #                         'linear=TRUE',
+  #                         'quadratic=TRUE',
+  #                         'hinge=FALSE',
+  #                         'product=FALSE'
+  #                       ))
+  modelo_maxent <- maxent(
+                        x = specie_entrenamiento[predictors],
+                        p = specie_entrenamiento[,"y"],
+                        silent = FALSE,
+                        args=c(
+                          'removeDuplicates=TRUE', 
+                          'jackknife=TRUE',
+                          'responsecurves=TRUE',
+                          'threads=2',
+                          'linear=TRUE',
+                          'threshold=FALSE',
+                          'quadratic=TRUE',
+                          'hinge=TRUE',
+                          'product=FALSE'
+                        ))
+    saveRDS(modelo_maxent, paste0("Pruebas/",file_prefix,"_",taxon,".rds"))
+
+} else {
+  print('maxent.jar no disponible')
+}
+
+summary(modelo_maxent)
+#modelo_maxent@lambdas
+#modelo_maxent@results
+#str(modelo_maxent)
+```
+
+```{r maxent-specific}
+prediccion_entrenamiento <- predict(object = modelo_maxent, 
+                                    x = specie_entrenamiento[predictors])
+prediccion_entrenamiento <- data.frame(y = prediccion_entrenamiento)
+
+## biblioteca https://rdrr.io/github/johnbaums/rmaxent/
+library(rmaxent)
+parse_lambdas(modelo_maxent)
+non_zero_features <- n_features(modelo_maxent)
+non_zero_features
+
+r2 <- rmaxent::project(modelo_maxent, 
+                       subset(bio_vars, predictors), 
+                       quiet=TRUE)$prediction_raw
+str(r2)
+ic(r2, 
+   ocurrencias_entrenamiento[,2:3], 
+   modelo_maxent)
+
+## biblioteca https://jamiemkass.github.io/ENMeval/articles/ENMeval-2.0-vignette.html
+library(ENMeval)
+aic.maxent(prediccion_entrenamiento, non_zero_features, p = NULL)
+#r2_pr <- data.frame(y = extract(r2, ocurrencias_entrenamiento[,2:3]))
+#aic.maxent(r2_pr, non_zero_features, p = NULL)
+```
+
+
+## Realizar evaluación del modelo
+
+```{r evaluacion}
+# evaluacion_e <- evaluate(p = ocurrencias_entrenamiento[,2:3], 
+#               a = puntos_aleatorios_fondo, 
+#               x = bio_vars,
+#               model = modelo_maxent)
+# evaluacion_e
+
+evaluacion_e <- evaluate(model = modelo_maxent,
+              p = specie_entrenamiento[specie_entrenamiento$y == 1,predictors], 
+              a = specie_entrenamiento[specie_entrenamiento$y == 0,predictors])
+evaluacion_e
+
+# evaluacion_c <- evaluate(p = ocurrencias_control[,2:3], 
+#               a = puntos_aleatorios_fondo, 
+#               x = bio_vars,
+#               model = modelo_maxent)
+# evaluacion_c
+
+evaluacion_c <- evaluate(model = modelo_maxent,
+              p = specie_control[specie_control$y == 1,predictors], 
+              a = specie_control[specie_control$y == 0,predictors]
+              )
+evaluacion_c
+
+threshold(evaluacion_c)
+```
+
+## Presentar graficas de evaluación del modelo
+
+```{r graficas-evaluacion}
+par(mfcol = c(1,2))
+
+plot(evaluacion_e, 'ROC')
+title(c(" "," ","entranaimiento"))
+plot(evaluacion_c, 'ROC')
+title(c(" "," ","control"))
+
+plot(evaluacion_e, 'TPR')
+title(c(" "," ","entranaimiento"))
+plot(evaluacion_c, 'TPR')
+title(c(" "," ","control"))
+
+boxplot(evaluacion_e, col=c('yellow','pink'), notch=TRUE,
+        main = "entrenamiento")
+boxplot(evaluacion_c, col=c('yellow','pink'), notch=TRUE,
+        main = "control")
+
+density(evaluacion_e)
+title("entranaimiento")
+density(evaluacion_c)
+title("control")
+```
+
+## Presentar graficas de contribución de variables
+
+```{r respuesta, fig.width = 12, fig.height = 12}
+response(modelo_maxent, at = NULL)
+#modelo_maxent@results
+```
+
+```{r subsroutines}
+maxent.select.contribution <- function (m, n) {
+  ## Funcion para estraer contribucion de variables de modelo Maxent
+  ## parametros: 
+  ## m - objeto del model maxent, 
+  ## n - vector de nombres de variables raster
+  ## Note: with jackknifing - in order to get variables 3 and 4
+  resultados <- m@results
+  tabla_resultados <- data.frame(t(rep(NA,5)))
+  names(tabla_resultados) <- c('variable','contribution','permutation.importance',
+                               'gain.without','gain.only')
+  for (i in 1:length(n)) {
+    var1_name <- paste0(n[i],'.contribution')
+    var1_value <- resultados[var1_name,1]
+    var2_name <- paste0(n[i],'.permutation.importance')
+    var2_value <- resultados[var2_name,1]
+    var3_name <- paste0('Training.gain.without.',n[i])
+    var3_value <- resultados[var3_name,1]
+    var4_name <- paste0('Training.gain.with.only.',n[i])
+    var4_value <- resultados[var4_name,1]    
+    tabla_resultados <- rbind(tabla_resultados,
+        c(n[i],var1_value,var2_value,var3_value,var4_value))
+  }
+  tabla_resultados <- tabla_resultados[-1,]
+  return(tabla_resultados)
+}
+```
+
+```{r contribucion-variables, fig.height = 8, fig.width = 8}
+nombres_variables <- names(subset(bio_vars, predictors))
+contribuciones_variables <- maxent.select.contribution(modelo_maxent,
+                                                      nombres_variables)
+contr_max <- max(as.numeric(c(contribuciones_variables[,2],
+                              contribuciones_variables[,3])))
+gain_max <- max(as.numeric(c(contribuciones_variables[,4],
+                              contribuciones_variables[,5])))
+
+par(mfcol = c(1,2), mar = c(5.1, 4.1, 6.1, 2.1))
+
+dotchart(as.numeric(contribuciones_variables[,2]),
+          col='blue', pch=16,
+          labels=contribuciones_variables[,1],
+          xlim=c(0, 1.02 * contr_max),
+          main=c('predictor contribution','and importance in permutations'),
+          xlab = "%"
+         )
+
+points(as.numeric(contribuciones_variables[,3]),
+       seq(1:35),
+       col='red', pch=1)
+
+legend("top", inset=c(0,-0.07), xpd = TRUE,
+       ncol = 2, bty = "n",
+       legend = c("contribution","perm. importance"),
+       pch = c(16,1), col = c("blue","red"))
+
+dotchart(as.numeric(contribuciones_variables[,4]),
+          col = 'orange', pch=16,
+          labels = contribuciones_variables[,1],
+          xlim = c(0, 1.02 * gain_max),
+          main = 'predictor jackknifing',
+          xlab = 'training gain')
+
+points(as.numeric(contribuciones_variables[,5]),
+       seq(1:35),
+       col='black', pch=1)
+
+legend("top", inset=c(0,-0.07), xpd = TRUE,
+       ncol = 2, bty = "n",
+       legend = c("excluding predictor","only one predictor"),
+       pch = c(16,1), col = c("orange","black"))
+```
+
+## Realizar prediccion de idoneidad de habitat y clasificación binaria
+
+```{r prediccion, fig.width = 8, fig.height = 8}
+# prediccion <- predict(subset(bio_vars, predictors), modelo_maxent, progress='window')
+# prediccion <- prediccion * bio_vars_mask
+# plot(prediccion, main = paste0("Probabilidad de presencia estimada de ",taxon),
+#      xlim = c(-100,-80), ylim = c(0,25))
+# plot(mundo, add = TRUE)
+```
+
+## Realizar la clasificación binaria con umbral max spec. sens.
+
+```{r clasificacion, fig.width = 8, fig.height = 8}
+# especie_reclass_table <- matrix(c(-Inf, threshold(evaluacion_c)$spec_sens, 0,
+#                                  threshold(evaluacion_c)$spec_sens, Inf, 1),
+#                                ncol=3, byrow=TRUE)
+# prediccion_presencia <- reclassify(prediccion, especie_reclass_table)
+# plot(prediccion_presencia, legend = FALSE,
+#      main = paste0("Probable presencia binaria (max. sens. spec.) de ",taxon),
+#      xlim = c(-100,-80), ylim = c(0,25))
+# plot(mundo, add = TRUE)
+```
+
+## Guadrar rasters
+
+```{r guardar-rasters}
+# writeRaster(prediccion,
+#               filename = paste0("Pruebas/",file_prefix,"_",taxon,"_probabilidad_presencia.tif"),
+#              format="GTiff", datatype = "FLT4S", overwrite = TRUE)
+# 
+# writeRaster(prediccion_presencia,
+#               filename = paste0("Pruebas/",file_prefix,"_",taxon,"_clasificacion_sens_spec.tif"),
+#              format="GTiff", datatype = "INT2S", overwrite = TRUE)
+```
+
+
+
