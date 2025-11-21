@@ -1,0 +1,347 @@
+---
+title: "Generador de 35 variables climaticos"
+author: "Viacheslav Shalsiko"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+### Definir nombres de archivos raster
+
+```{r}
+## Capas de datos fuente
+prec_raster <- "CHELSA_12pr_1981-2010_V21_clip.tif"
+tmin_raster <- "CHELSA_12tasmin_1981-2010_V21_clip.tif"
+tmax_raster <- "CHELSA_12tasmax_1981-2010_V21_clip.tif"
+
+## Capas de datos que se van a generar
+tmean_raster <- "CHELSA_12tmean_1981-2010_V21_clip.tif"
+biovars_raster <- "CHELSA_19biovars_1981-2010_V21_clip.tif"
+solrad_raster <- "CHELSA_12solrad_1981-2010_V21_clip.tif"
+pet_raster <- "CHELSA_12pet_1981-2010_V21_clip.tif"
+envirem_raster <- "CHELSA_16envirem_1981-2010_V21_clip.tif"
+
+```
+
+### Cargar bibliotecas
+
+```{r cargar-bibliotecas}
+library(sp)
+library(raster)
+library(terra)
+library(dismo)
+library(envirem)
+library(viridis)
+
+gdal(lib = "all")
+```
+
+### Cargar tres grupos de capas raster (precipitación, T minima, T maxima) con el modulo raster
+
+```{r cargar-capas}
+prec <- stack(prec_raster)
+names(prec) <- paste0("prec", seq(1, 12))
+prec
+
+tmin <- stack(tmin_raster)
+names(tmin) <- paste0("tmin", seq(1, 12))
+tmin
+
+tmax <- stack(tmax_raster)
+names(tmax) <- paste0("tmax", seq(1, 12))
+tmax
+```
+
+### Guardar una plantilla de capa raster
+
+```{r guardar-plantilla}
+writeRaster(prec[[1]],
+            filename="raster_template_clip.tif",
+            format="GTiff", datatype="FLT4S", overwrite=TRUE)
+```
+
+### Generar y guardar 12 variables de temperatura media mensual
+
+```{r calcular-tmean}
+tmean <- (tmin + tmax) / 2
+names(tmean) <- paste0("tmean", seq(1, 12))
+tmean
+
+writeRaster(tmean,
+            filename=tmean_raster,
+            format="GTiff", datatype="FLT4S", overwrite=TRUE)
+```
+
+
+### Generar y guardar 19 variables bioclimpaticas con el modulo dismo
+
+```{r generar-biovars-19}
+biovars <- biovars(prec, tmin, tmax)
+biovars
+
+writeRaster(biovars,
+            filename=biovars_raster,
+            format="GTiff", datatype="FLT4S", overwrite=TRUE)
+```
+
+### Visualizar variables bioclim
+
+```{r}
+plot(biovars[[1:4]], col = cividis(100))
+plot(biovars[[5:8]], col = cividis(100))
+plot(biovars[[9:12]], col = cividis(100))
+plot(biovars[[13:16]], col = cividis(100))
+plot(biovars[[17:19]], col = cividis(100))
+```
+
+### Cargar plantilla de raster previamente cargada con el modulo terra
+
+```{r cargar-plantilla}
+raster_template <- terra::rast("raster_template_clip.tif")
+raster_template
+```
+
+### Redefinir las funciones para generar las capas de insolación
+
+```{r funcion-modificada-radiacion-solar}
+
+ETsolradRastersMy <- function(rasterTemplate, year, outputDir = NULL, ...) {
+		
+	if (terra::is.lonlat(rasterTemplate)) {
+		isLongLat <- TRUE
+	} else {
+		isLongLat <- FALSE
+	}
+	
+	if (!isLongLat) {
+		rasterTemplate2 <- rasterTemplate
+		rasterTemplate <- terra::project(rasterTemplate, 'EPSG:4326')
+	}
+		
+	# extract latitudes from cells
+	latvals <- terra::yFromRow(rasterTemplate, row = 1:nrow(rasterTemplate))
+	
+	# for each month, calculate insolation and fill raster
+	solradStack <- terra::rast(rasterTemplate, nlyrs = 12)
+	for (i in 1:12) {
+		
+		message(i, ' ', appendLF = FALSE)	
+		RA <- sapply(latvals, function(x) calcSolRadMy(year = year, lat = x, month = i))
+		tmp <- rep(RA, each = terra::ncol(rasterTemplate))
+		## siguiente linea se corrige sobre el código original de ENVIREM, para generar capas correctas
+		tmp <- matrix(data = tmp, nrow = terra::nrow(rasterTemplate), ncol = terra::ncol(rasterTemplate), byrow = TRUE)
+		ras <- terra::init(rasterTemplate, fun = tmp)
+		solradStack[[i]] <- ras
+	}
+		
+	names(solradStack) <- paste0("et_solrad_", sprintf("%02d", 1:12))
+	
+	if (!isLongLat) {	
+		# project to input projection
+		solradStack <- terra::project(solradStack, rasterTemplate2)
+		# mask NA regions
+		solradStack <- terra::mask(solradStack, rasterTemplate2)	
+	} else {	
+		# mask NA regions
+		solradStack <- terra::mask(solradStack, rasterTemplate)	
+	}
+	
+	return(solradStack)
+}
+
+calcSolRadMy <- function(year, lat, month) {
+	# year is number of years after 1950
+	# lat is in degrees
+	# month is numeric, will be converted into 15th day of the month to get mid-month mean solar radiation
+		
+	# define orbit
+	orb <- la04(t = year)
+	
+	# convert date to julian day
+	day <- c(15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349)[month]
+	
+	# convert julian day to day based on 360-day year
+	day <- day * 360/365
+	
+	# calculate solar longitude for given year
+	# t = time after 1950, day is in 360-day calendar
+	solarLong <- day2l(orb, day = day)
+	
+	# returns daily mean insolation in Watts/m2
+	solrad <- Insol(orbit = orb, long = solarLong, lat = lat*pi/180)
+	
+	# convert to MJ/m2 by multiplying by 0.0864, and then by 0.408 to get equivalent evaporation in mm / day
+	solrad * 0.0864 * 0.408
+}
+```
+
+### Generar las 12 capas de radiación solar
+
+```{r generar-radiacion-solar}
+## el raster de plantilla tiene que ser en el formato 
+## SpatRaster del paquete terra
+## parámetro year = 50 corresponde al año 2000
+solrad <- ETsolradRastersMy(raster_template, year = 50, outputDir = NULL)
+solrad
+```
+
+### Guardar las capas de radiación solar
+
+```{r guardar-raster-radiacion-solar}
+writeRaster(solrad,
+            filename=solrad_raster,
+            datatype ="FLT4S", 
+            NAflag = -9999,
+            overwrite=TRUE)
+```
+
+### Cargar capas raster previamente guardadas con el modulo terra
+
+```{r cargar-capas-terra}
+t_prec <- terra::rast(prec_raster)
+names(t_prec) <- paste0("prec", sprintf("%02d", 1:12))
+t_prec
+
+t_tmin <- terra::rast(tmin_raster)
+names(t_tmin) <- paste0("tmin", sprintf("%02d", 1:12))
+t_tmin
+
+t_tmax <- terra::rast(tmax_raster)
+names(t_tmax) <- paste0("tmax", sprintf("%02d", 1:12))
+t_tmax
+
+t_tmean <- terra::rast(tmean_raster)
+names(t_tmean) <- paste0("tmean", sprintf("%02d", 1:12))
+t_tmean
+
+t_biovars <- terra::rast(biovars_raster)
+names(t_biovars) <- paste0("biovars", sprintf("%02d", 1:19))
+t_biovars
+```
+
+### Establecer esquemas de nombres de capas requeridos por las funciones del modulo envirem
+
+```{r naming}
+assignNames(precip = 'prec##',
+            tmin = 'tmin##',
+            tmax = 'tmax##',
+            tmean = 'tmean##',
+            solrad = 'et_solrad_##',
+            pet = 'PET_##')
+
+allvar <- c("annualPET", "aridityIndexThornthwaite", "climaticMoistureIndex", "continentality", "embergerQ", "growingDegDays0", "growingDegDays5", "maxTempColdest", "minTempWarmest", "meanTempColdest", "meanTempWarmest", "monthCountByTemp10", "PETColdestQuarter", "PETDriestQuarter", "PETseasonality", "PETWarmestQuarter", "PETWettestQuarter", "thermicityIndex")
+```
+
+### Generar el raster stack en blanco para los resultados
+
+```{r generar-stack-resultados}
+reslist <- vector('list', length = length(allvar))
+names(reslist) <- allvar
+```
+
+### Generar PET mensual con el modulo envirem
+
+```{r PET-mensual}
+tempRange <- abs(t_tmax - t_tmin)
+monthlyPET <- monthlyPET(t_tmean, solrad, tempRange, tempScale = 1)
+plot(monthlyPET, col = mako(100))
+```
+
+### Guardar las capas de PET mensual
+
+```{r guardar-raster-PET-mensual}
+writeRaster(monthlyPET,
+            filename=pet_raster,
+            datatype ="FLT4S", 
+            NAflag = -9999,
+            overwrite=TRUE)
+```
+
+### Generar PET derivados con el modulo envirem
+
+```{r PET}
+annualPET <- sum(monthlyPET)
+names(annualPET) <- "annualPET"
+reslist[['annualPET']] <- annualPET
+
+PETseas <- PETseasonality(monthlyPET)
+reslist[['PETseasonality']] <- PETseas
+
+PETextr <- petExtremes(monthlyPET, t_prec, t_tmean)
+reslist[['PETColdestQuarter']] <- PETextr[[1]]
+reslist[['PETWarmestQuarter']] <- PETextr[[2]]
+reslist[['PETWettestQuarter']] <- PETextr[[3]]
+reslist[['PETDriestQuarter']] <- PETextr[[4]]
+
+fullPET <- c(annualPET, PETseas, PETextr[[1]], PETextr[[2]], PETextr[[3]], PETextr[[4]])
+plot(fullPET, col = inferno(100))
+```
+
+### Generar otros variables con el modulo envirem
+
+```{r envirem-growing-deg}
+gdd0 <- growingDegDays(t_tmean, baseTemp = 0)
+plot(gdd0, col = inferno(100))
+reslist[['growingDegDays0']] <- gdd0
+
+gdd5 <- growingDegDays(t_tmean, baseTemp = 5)
+plot(gdd5, col = inferno(100))
+reslist[['growingDegDays5']] <- gdd5
+```
+
+```{r temp-extremes}
+tempExtremes <- otherTempExtremes(t_tmean, t_tmin, t_tmax)
+plot(tempExtremes, col = inferno(100))
+reslist[['minTempWarmest']] <- tempExtremes[['minTempWarmest']]
+reslist[['maxTempColdest']] <- tempExtremes[['maxTempColdest']]
+reslist[['meanTempWarmest']] <- tempExtremes[['meanTempWarmest']]
+reslist[['meanTempColdest']] <- tempExtremes[['meanTempColdest']]
+```
+
+```{r month-conut-10deg}
+monthCount10deg <- monthCountByTemp(t_tmean, minTemp = 10)
+plot(monthCount10deg, col = inferno(100))
+reslist[['monthCountByTemp10']] <- monthCount10deg
+```
+
+```{r continentality}
+ci <- continentality(tmax = tempExtremes[[4]], tmin = tempExtremes[[3]])
+plot(ci, col = inferno(100))
+reslist[['continentality']] <- ci
+```
+
+```{r compensated-thermicity}
+thermInd <- thermicityIndex(annualTemp = t_biovars[[1]], minTemp = t_biovars[[6]], maxTemp = tempExtremes[[1]], continentality = ci)
+plot(thermInd, col = inferno(100))
+reslist[['thermicityIndex']] <- thermInd
+```
+
+```{r embergerQ}
+emberger <- embergerQ(t_biovars[[12]], t_biovars[[5]], t_biovars[[6]])
+plot(emberger, col = inferno(100))
+reslist[['embergerQ']] <- emberger
+```
+
+```{r climatic-moisture}
+cmi <- climaticMoistureIndex(t_biovars[[12]], annualPET)
+plot(cmi, col = inferno(100))
+reslist[['climaticMoistureIndex']] <- cmi
+```
+
+```{r Thornwaite-aridity}
+aridIndThorn <- aridityIndexThornthwaite(t_prec, monthlyPET)
+plot(aridIndThorn, col = inferno(100))
+reslist[['aridityIndexThornthwaite']] <- aridIndThorn
+```
+
+### Guardar capas envirem generadas
+
+```{r guardar-raster-envirem}
+reslist <- terra::rast(reslist)
+reslist <- reslist[[allvar]]
+
+writeRaster(reslist,
+            filename=envirem_raster,
+            datatype ="FLT4S", 
+            NAflag = -9999,
+            overwrite=TRUE)
+```
