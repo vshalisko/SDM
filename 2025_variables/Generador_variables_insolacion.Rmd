@@ -1,0 +1,159 @@
+---
+title: "Generador de insolacion"
+author: "Viacheslav Shalsiko"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+### Definir nombres de archivos raster
+
+```{r}
+## Capas de datos fuente
+prec_raster <- "precipitacion.tif"
+
+## Capas de datos que se van a generar
+solrad_raster <- "solrad.tif"
+
+
+## Nombre del archivo temporan (plantilla) raster
+plantilla <- "plantilla_raster.tif"
+```
+
+### Cargar bibliotecas y presentar la información sobre el contexto
+
+```{r cargar-bibliotecas}
+library(sp)
+library(raster)
+library(terra)
+library(dismo)
+library(envirem)
+library(viridis)
+
+gdal(lib = "all")
+
+sessionInfo()
+```
+
+### Cargar tres grupos de capas raster (precipitación, T minima, T maxima) con el modulo raster
+
+```{r cargar-capas}
+prec <- stack(prec_raster)
+names(prec) <- paste0("prec", seq(1, 12))
+prec
+```
+
+### Guardar una plantilla de capa raster
+
+```{r guardar-plantilla}
+writeRaster(prec[[1]],
+            filename=plantilla,
+            format="GTiff", datatype="FLT4S", overwrite=TRUE)
+```
+
+### Cargar plantilla de raster previamente cargada con el modulo terra
+
+```{r cargar-plantilla}
+raster_template <- terra::rast(plantilla)
+raster_template
+```
+
+### Redefinir las funciones para generar las capas de insolación
+
+```{r funcion-modificada-radiacion-solar}
+
+ETsolradRastersMy <- function(rasterTemplate, year, outputDir = NULL, ...) {
+		
+	if (terra::is.lonlat(rasterTemplate)) {
+		isLongLat <- TRUE
+	} else {
+		isLongLat <- FALSE
+	}
+	
+	if (!isLongLat) {
+		rasterTemplate2 <- rasterTemplate
+		rasterTemplate <- terra::project(rasterTemplate, 'EPSG:4326')
+	}
+		
+	# extract latitudes from cells
+	latvals <- terra::yFromRow(rasterTemplate, row = 1:nrow(rasterTemplate))
+	
+	# for each month, calculate insolation and fill raster
+	solradStack <- terra::rast(rasterTemplate, nlyrs = 12)
+	for (i in 1:12) {
+		
+		message(i, ' ', appendLF = FALSE)	
+		RA <- sapply(latvals, function(x) calcSolRadMy(year = year, lat = x, month = i))
+		tmp <- rep(RA, each = terra::ncol(rasterTemplate))
+		## siguiente linea se corrige sobre el código original de ENVIREM, para generar capas correctas
+		tmp <- matrix(data = tmp, nrow = terra::nrow(rasterTemplate), ncol = terra::ncol(rasterTemplate), byrow = TRUE)
+		ras <- terra::init(rasterTemplate, fun = tmp)
+		solradStack[[i]] <- ras
+	}
+		
+	names(solradStack) <- paste0("et_solrad_", sprintf("%02d", 1:12))
+	
+	if (!isLongLat) {	
+		# project to input projection
+		solradStack <- terra::project(solradStack, rasterTemplate2)
+		# mask NA regions
+		solradStack <- terra::mask(solradStack, rasterTemplate2)	
+	} else {	
+		# mask NA regions
+		solradStack <- terra::mask(solradStack, rasterTemplate)	
+	}
+	
+	return(solradStack)
+}
+
+calcSolRadMy <- function(year, lat, month) {
+	# year is number of years after 1950
+	# lat is in degrees
+	# month is numeric, will be converted into 15th day of the month to get mid-month mean solar radiation
+		
+	# define orbit
+	orb <- la04(t = year)
+	
+	# convert date to julian day
+	day <- c(15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349)[month]
+	
+	# convert julian day to day based on 360-day year
+	day <- day * 360/365
+	
+	# calculate solar longitude for given year
+	# t = time after 1950, day is in 360-day calendar
+	solarLong <- day2l(orb, day = day)
+	
+	# returns daily mean insolation in Watts/m2
+	solrad <- Insol(orbit = orb, long = solarLong, lat = lat*pi/180)
+	
+	# convert to MJ/m2 by multiplying by 0.0864, and then by 0.408 to get equivalent evaporation in mm / day
+	solrad * 0.0864 * 0.408
+}
+```
+
+### Generar las 12 capas de radiación solar
+
+```{r generar-radiacion-solar}
+## el raster de plantilla tiene que ser en el formato 
+## SpatRaster del paquete terra
+## parámetro year = 50 corresponde al año 2000
+solrad <- ETsolradRastersMy(raster_template, year = 50, outputDir = NULL)
+solrad
+```
+
+```{r}
+plot(solrad[[1:4]])
+plot(solrad[[5:8]])
+plot(solrad[[9:12]])
+```
+
+
+### Guardar las capas de radiación solar
+
+```{r guardar-raster-radiacion-solar}
+writeRaster(solrad,
+            filename=solrad_raster,
+            datatype ="FLT4S", 
+            NAflag = -9999,
+            overwrite=TRUE)
+```
