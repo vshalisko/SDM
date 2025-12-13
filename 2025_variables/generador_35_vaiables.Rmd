@@ -9,16 +9,19 @@ output: html_document
 
 ```{r}
 ## Capas de datos fuente
-prec_raster <- "CHELSA_12pr_1981-2010_V21_clip.tif"
-tmin_raster <- "CHELSA_12tasmin_1981-2010_V21_clip.tif"
-tmax_raster <- "CHELSA_12tasmax_1981-2010_V21_clip.tif"
+prec_raster <- "precipitacion.tif"
+tmin_raster <- "tmin.tif"
+tmax_raster <- "tmax.tif"
 
 ## Capas de datos que se van a generar
-tmean_raster <- "CHELSA_12tmean_1981-2010_V21_clip.tif"
-biovars_raster <- "CHELSA_19biovars_1981-2010_V21_clip.tif"
-solrad_raster <- "CHELSA_12solrad_1981-2010_V21_clip.tif"
-pet_raster <- "CHELSA_12pet_1981-2010_V21_clip.tif"
-envirem_raster <- "CHELSA_16envirem_1981-2010_V21_clip.tif"
+tmean_raster <- "tmean.tif"
+biovars_raster <- "biovars.tif"
+solrad_raster <- "solrad.tif"
+pet_raster <- "pet.tif"
+envirem_raster <- "envirem.tif"
+
+## Nombre del archivo temporal (plantilla) raster
+plantilla <- "plantilla_raster.tif"
 
 ```
 
@@ -33,6 +36,7 @@ library(envirem)
 library(viridis)
 
 gdal(lib = "all")
+sessionInfo()
 ```
 
 ### Cargar tres grupos de capas raster (precipitación, T minima, T maxima) con el modulo raster
@@ -55,7 +59,7 @@ tmax
 
 ```{r guardar-plantilla}
 writeRaster(prec[[1]],
-            filename="raster_template_clip.tif",
+            filename=plantilla,
             format="GTiff", datatype="FLT4S", overwrite=TRUE)
 ```
 
@@ -96,7 +100,7 @@ plot(biovars[[17:19]], col = cividis(100))
 ### Cargar plantilla de raster previamente cargada con el modulo terra
 
 ```{r cargar-plantilla}
-raster_template <- terra::rast("raster_template_clip.tif")
+raster_template <- terra::rast(plantilla)
 raster_template
 ```
 
@@ -183,6 +187,13 @@ calcSolRadMy <- function(year, lat, month) {
 solrad <- ETsolradRastersMy(raster_template, year = 50, outputDir = NULL)
 solrad
 ```
+
+```{r}
+plot(solrad[[1:4]])
+plot(solrad[[5:8]])
+plot(solrad[[9:12]])
+```
+
 
 ### Guardar las capas de radiación solar
 
@@ -345,3 +356,4 @@ writeRaster(reslist,
             NAflag = -9999,
             overwrite=TRUE)
 ```
+
