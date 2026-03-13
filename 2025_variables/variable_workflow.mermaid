@@ -2,6 +2,7 @@
 title: Flujo de trabajo para preparar variables
 ---
 flowchart LR
-  multilayer[Formato TIFF]
-  asc[Formato ASC]
-  tif --gdal_translate--> asc 
+  multilayer_preliminar[]
+  multilayer[Multilayer en formato TIFF]
+  asc[Capas indiviales Formato ASC]
+  multilayer --gdal_translate--> asc 
