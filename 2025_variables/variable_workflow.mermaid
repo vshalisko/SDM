@@ -27,8 +27,8 @@ flowchart LR
   raster_fuente6 --gdal_merge--> stack_por_tipo2 
   stack_por_tipo1 --gdal_translate--> stack_homologado1
   stack_por_tipo2 --gdal_translate--> stack_homologado2
-  stack1_homologado1 --gdal_merge--> stack_completo
-  stack2_homologado1 --gdal_merge--> stack_completo
+  stack_homologado1 --gdal_merge--> stack_completo
+  stack_homologado2 --gdal_merge--> stack_completo
   stack_completo --gdal_translate--> asc1 
   stack_completo --gdal_translate--> asc2 
   stack_completo --gdal_translate--> asc3 
