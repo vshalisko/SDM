@@ -2,7 +2,9 @@
 title: Flujo de trabajo para preparar variables
 ---
 flowchart LR
-  multilayer_preliminar[]
-  multilayer[Multilayer en formato TIFF]
-  asc[Capas indiviales Formato ASC]
+  rasters_fuente[Capas raster fuente individuales en formato GeoTIFF .tif]
+  stacks_por_tipo@{shape: docs, label: "Conjunto de raster stack inicial en formato GeoTIFF .tif"}
+  stack_preliminar[Raster stack parcial en formato GeoTIFF .tif]
+  stack[Raster stack completo recortado en formato GeoTIFF .tif]
+  asc[Capas indiviales en formato ESRI ASCII grid .asc]
   multilayer --gdal_translate--> asc 
