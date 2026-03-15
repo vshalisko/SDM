@@ -2,9 +2,12 @@
 title: Flujo de trabajo para preparar variables
 ---
 flowchart LR
-  rasters_fuente[Capas raster fuente individuales en formato GeoTIFF .tif]
-  stacks_por_tipo@{shape: docs, label: "Conjunto de raster stack inicial en formato GeoTIFF .tif"}
-  stack_preliminar[Raster stack parcial en formato GeoTIFF .tif]
-  stack[Raster stack completo recortado en formato GeoTIFF .tif]
-  asc[Capas indiviales en formato ESRI ASCII grid .asc]
-  multilayer --gdal_translate--> asc 
+  rasters_fuente@{shape: docs, label: "Capas raster fuente individuales en formato GeoTIFF .tif"}
+  stacks_por_tipo@{shape: docs, label: "Conjunto de raster stacks agrupados segun tipo, tamaño de pixel y su extensión en formato GeoTIFF .tif"}
+  stacks_homologados@{shape: docs, label: "Conjunto de raster stacks con tamaños de pixel homologados en formato GeoTIFF .tif"}
+  stack_completo[Raster stack completo recortado en formato GeoTIFF .tif]
+  asc@{shape: docs, label: "Capas indiviales en formato ESRI ASCII grid .asc"}
+  rasters_fuente --gdal_merge--> stacks_por_tipo 
+  stacks_por_tipo --gdal_translate--> stack_homologados
+  stacks_homologados --gdal_merge--> stack_completo
+  stack_completo --gdal_translate--> asc 
