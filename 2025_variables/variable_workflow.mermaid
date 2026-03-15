@@ -2,12 +2,23 @@
 title: Flujo de trabajo para preparar variables
 ---
 flowchart LR
-  rasters_fuente@{shape: docs, label: "Capas raster fuente individuales en formato GeoTIFF .tif"}
-  stacks_por_tipo@{shape: docs, label: "Conjunto de raster stacks agrupados segun tipo, tamaño de pixel y su extensión en formato GeoTIFF .tif"}
+  raster_fuente1@{shape: doc, label: "Capa raster fuente individuales en formato GeoTIFF .tif"}
+  raster_fuente2@{shape: doc, label: "Capa raster fuente individuales en formato GeoTIFF .tif"}
+  raster_fuente3@{shape: doc, label: "Capa raster fuente individuales en formato GeoTIFF .tif"}
+  raster_fuente4@{shape: doc, label: "Capa raster fuente individuales en formato GeoTIFF .tif"}
+  raster_fuente5@{shape: doc, label: "Capa raster fuente individuales en formato GeoTIFF .tif"}
+  raster_fuente6@{shape: doc, label: "Capa raster fuente individuales en formato GeoTIFF .tif"}
+  stack_por_tipo1@{shape: docs, label: "Raster stack con capas agrupados segun tipo, tamaño de pixel y su extensión en formato GeoTIFF .tif"}
+  stack_por_tipo2@{shape: docs, label: "Raster stack con capas agrupados segun tipo, tamaño de pixel y su extensión en formato GeoTIFF .tif"}
   stacks_homologados@{shape: docs, label: "Conjunto de raster stacks con tamaños de pixel homologados en formato GeoTIFF .tif"}
   stack_completo@{shape: doc, label: "Raster stack completo recortado en formato GeoTIFF .tif"}
   asc@{shape: docs, label: "Capas indiviales en formato ESRI ASCII grid .asc"}
-  rasters_fuente --gdal_merge--> stacks_por_tipo 
+  raster_fuente1 --gdal_merge--> stack_por_tipo1 
+  raster_fuente2 --gdal_merge--> stack_por_tipo1 
+  raster_fuente3 --gdal_merge--> stack_por_tipo1 
+  raster_fuente4 --gdal_merge--> stack_por_tipo2 
+  raster_fuente5 --gdal_merge--> stack_por_tipo2 
+  raster_fuente6 --gdal_merge--> stack_por_tipo2 
   stacks_por_tipo --gdal_translate--> stacks_homologados
   stacks_homologados --gdal_merge--> stack_completo
   stack_completo --gdal_translate--> asc 
