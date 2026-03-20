@@ -128,7 +128,8 @@ if (file.exists(jar)) {
                           'threshold=FALSE',
                           'quadratic=TRUE',
                           'hinge=FALSE',
-                          'product=FALSE'
+                          'product=FALSE',
+                          'maximumiterations=2000'
                         ))
     summary(modelo_maxent)
     saveRDS(modelo_maxent, "modelo_maxent_Pseudotsuga_menziesii.rds")
