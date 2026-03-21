@@ -306,6 +306,8 @@ text(x = reg_values[best_index], y = mean(modelos_ic_df$AICc) + 100,
 
 
 ```{r best-model-jack, cache=TRUE}
+## generación de un modelo con mayor limite en número de iteraciones
+## incluye el proceso de Jackknifing y generación de las curvas de respuesta
 modelos[[best_index]] <- maxent(
                         x = specie_entrenamiento[predictors],
                         p = specie_entrenamiento[,"y"],
@@ -321,6 +323,7 @@ modelos[[best_index]] <- maxent(
                           'quadratic=TRUE',
                           'hinge=TRUE',
                           'product=FALSE',
+                          'maximumiterations=5000',
                           paste0('betamultiplier=',reg_values[best_index])
                         ))
 
@@ -545,13 +548,21 @@ plot(mundo, add = TRUE)
 
 ## Determinar variables limitantes
 
-```{r limiting, cache=TRUE, fig.width = 8, fig.height = 8}
+```{r limiting, cache=TRUE}
 lim <- limiting(subset(bio_vars, predictors), modelos[[best_index]])
-plot(lim)
-#levelplot(lim, col.regions=rainbow) +
-#  layer(sp.points(SpatialPoints(ocurrencias[,2:3]), pch=20, col=1))
 ```
 
+
+```{r limiting-plot, fig.width = 8, fig.height = 8}
+#plot(lim, col=terrain.colors(length(predictors)))
+
+library(rasterVis)
+lim <- as.factor(lim)
+lim_tabla <- levels(lim)[[1]]
+lim_tabla[["vars"]] <- predictor_names[c(unlist(lim_tabla))]
+levels(lim) <- lim_tabla
+levelplot(lim, col.regions=terrain.colors, xlab="", ylab="")
+```
 
 
 ## Guadrar rasters
