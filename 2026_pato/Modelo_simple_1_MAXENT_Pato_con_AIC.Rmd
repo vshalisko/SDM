@@ -14,13 +14,17 @@ taxon_ <- "Dendrocygna_autumnalis"
 predictors <- 1:42
 n_fondo <- 5000
 predictor_names <- c(paste0('b',1:19),paste0('e',1:18),"d1","d2","d5","d15","FactK","elev")
+parametros_modelo <- c('linear=TRUE',
+                       'threshold=FALSE',
+                       'quadratic=TRUE',
+                       'hinge=TRUE',
+                       'product=FALSE')
 ```
 
 ## Preparar el entorno
 
 ```{r bibliotecas}
 library(sp)
-#library(rgdal)
 library(raster)
 library(dismo)
 library(rJava)
@@ -29,7 +33,7 @@ library(rworldxtra)
 library(rmaxent)
 library(usdm)
 library(lattice)
-
+library(rasterVis)
 
 sessionInfo()
 ```
@@ -200,7 +204,8 @@ specie_control <- as.data.frame(cbind(x_c,y_c))
 dim(specie_control)
 ```
 
-## Construir el modelo MAXENT
+## Producir una serie de modelos MAXENT con distintos parametros de regularizacion
+Nota: Los modelos para selección no requieren proceso de Jackknifing y no requieren generaciójn de las curvas de respuesta
 
 ```{r modelo, cache = TRUE}
 jar <- paste(system.file(package='dismo'), '/java/maxent.jar', sep='')
@@ -216,15 +221,11 @@ for (i in 1:n_modelos) {
                         p = specie_entrenamiento[,"y"],
                         silent = FALSE,
                         args=c(
+                          parametros_modelo,
                           'removeDuplicates=TRUE', 
                           'jackknife=FALSE',
-                          'responsecurves=TRUE',
+                          'responsecurves=FALSE',
                           'threads=3',
-                          'linear=TRUE',
-                          'threshold=FALSE',
-                          'quadratic=TRUE',
-                          'hinge=TRUE',
-                          'product=FALSE',
                           paste0('betamultiplier=',reg_values[i])
                         ))
     modelos[[i]] <- modelo_maxent
@@ -244,9 +245,9 @@ saveRDS(modelos, paste0(file_prefix,
 prediccion_raw_list <- list()
 
 for (i in 1:n_modelos) {
-    print(parse_lambdas(modelos[[i]]))
+    #print(parse_lambdas(modelos[[i]]))
     non_zero_features <- n_features(modelos[[i]])
-    print(non_zero_features)
+    print(paste0("Modelo ", i, ", número de parámetros ", non_zero_features))
     
     prediccion_raw_list[[i]] <- rmaxent::project(modelos[[i]],
                         subset(bio_vars, predictors),
@@ -257,6 +258,8 @@ prediccion_raw <- stack(prediccion_raw_list)
 names(prediccion_raw) <- paste0("r",reg_values)
 plot(prediccion_raw)
 ```
+
+## Selección de mejor modelo por AICc
 
 ```{r best-model}
 modelos_ic <- ic(prediccion_raw,
@@ -279,7 +282,6 @@ if (is.na(best_index)) {
 # #aic.maxent(r2_pr, non_zero_features, p = NULL)
 ```
 
-
 ```{r grafica-aic}
 max_AICc <- max(modelos_ic_df$AICc)
 min_AICc <- min(modelos_ic_df$AICc)
@@ -301,6 +303,8 @@ text(x = reg_values[best_index], y = mean(modelos_ic_df$AICc) + 100,
      pos = 4)
 ```
 
+## Recalcular el mejor modelo con Jackknifing y generación de curvas de respuesta
+Nota: se puede poner el número mayor en el límite de número de iteraciones
 
 ```{r best-model-jack, cache=TRUE}
 modelos[[best_index]] <- maxent(
@@ -308,15 +312,12 @@ modelos[[best_index]] <- maxent(
                         p = specie_entrenamiento[,"y"],
                         silent = FALSE,
                         args=c(
+                          parametros_modelo,
                           'removeDuplicates=TRUE', 
                           'jackknife=TRUE',
                           'responsecurves=TRUE',
                           'threads=3',
-                          'linear=TRUE',
-                          'threshold=FALSE',
-                          'quadratic=TRUE',
-                          'hinge=TRUE',
-                          'product=FALSE',
+                          'maximumiterations=5000',                          
                           paste0('betamultiplier=',reg_values[best_index])
                         ))
 
@@ -324,8 +325,13 @@ saveRDS(modelos, paste0(file_prefix,
                               "_",taxon_,".rds"))
 ```
 
+```{r}
+paste("Número de iteraciones:", modelos[[best_index]]@results['Iterations',1])
+#str(modelos[[best_index]])
+#modelos[[best_index]]@results
+```
 
-## Realizar evaluación del mejor modelo (por AICc)
+## Realizar evaluación del mejor modelo
 
 ```{r evaluacion}
 evaluacion_e <- evaluate(model = modelos[[best_index]],
@@ -348,59 +354,59 @@ threshold(evaluacion_c)
 ```{r graficas-evaluacion}
 par(mfcol = c(1,2))
 
-plot(evaluacion_e, 'ROC')
-title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'ROC')
+plot(evaluacion_e, 'ROC', pch=20)
+title(c(" "," ","entrenaimiento"))
+plot(evaluacion_c, 'ROC', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'TPR')
-title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'TPR')
+plot(evaluacion_e, 'TPR', pch=20)
+title(c(" "," ","entrenaimiento"))
+plot(evaluacion_c, 'TPR', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'FPR')
+plot(evaluacion_e, c('FPR'), pch=20)
 title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'FPR')
+plot(evaluacion_c, 'FPR', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'TNR')
-title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'TNR')
+plot(evaluacion_e, 'TNR', pch=20)
+title(c(" "," ","entrenaimiento"))
+plot(evaluacion_c, 'TNR', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'FNR')
+plot(evaluacion_e, 'FNR', pch=20)
 title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'FNR')
+plot(evaluacion_c, 'FNR', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'CCR')
-title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'CCR')
+plot(evaluacion_e, 'CCR', pch=20)
+title(c(" "," ","entrenaimiento"))
+plot(evaluacion_c, 'CCR', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'MCR')
-title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'MCR')
+plot(evaluacion_e, 'MCR', pch=20)
+title(c(" "," ","entrenaimiento"))
+plot(evaluacion_c, 'MCR', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'PPP')
+plot(evaluacion_e, 'PPP', pch=20)
 title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'PPP')
+plot(evaluacion_c, 'PPP', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'NPP')
-title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'NPP')
+plot(evaluacion_e, 'NPP', pch=20)
+title(c(" "," ","entrenaimiento"))
+plot(evaluacion_c, 'NPP', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'OR')
-title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'OR')
+plot(evaluacion_e, 'OR', pch=20)
+title(c(" "," ","entrenaimiento"))
+plot(evaluacion_c, 'OR', pch=20)
 title(c(" "," ","control"))
 
-plot(evaluacion_e, 'kappa')
-title(c(" "," ","entranaimiento"))
-plot(evaluacion_c, 'kappa')
+plot(evaluacion_e, 'kappa', pch=20)
+title(c(" "," ","entrenaimiento"))
+plot(evaluacion_c, 'kappa', pch=20)
 title(c(" "," ","control"))
 
 boxplot(evaluacion_e, col=c('yellow','pink'), notch=TRUE,
@@ -536,16 +542,23 @@ plot(prediccion_presencia, legend = FALSE,
 plot(mundo, add = TRUE)
 ```
 
+
 ## Determinar variables limitantes
 
-```{r limiting}
+```{r limiting, cache=TRUE}
 lim <- limiting(subset(bio_vars, predictors), modelos[[best_index]])
-plot(lim)
-#levelplot(lim, col.regions=rainbow) +
-#  layer(sp.points(SpatialPoints(ocurrencias[,2:3]), pch=20, col=1))
 ```
 
 
+```{r limiting-plot, fig.width = 8, fig.height = 8}
+#plot(lim, col=terrain.colors(length(predictors)))
+
+lim <- as.factor(lim)
+lim_tabla <- levels(lim)[[1]]
+lim_tabla[["vars"]] <- predictor_names[c(unlist(lim_tabla))]
+levels(lim) <- lim_tabla
+levelplot(lim, col.regions=topo.colors, xlab="", ylab="")
+```
 
 ## Guadrar rasters
 

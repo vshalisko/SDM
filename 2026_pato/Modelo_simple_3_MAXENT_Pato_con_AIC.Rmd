@@ -14,13 +14,17 @@ taxon_ <- "Dendrocygna_autumnalis"
 predictors <- 1:54
 n_fondo <- 5000
 predictor_names <- c(paste0('b',1:19),paste0('e',1:16),paste0('s',1:15),"d05","d1","d15","d2")
+parametros_modelo <- c('linear=TRUE',
+                       'threshold=FALSE',
+                       'quadratic=TRUE',
+                       'hinge=TRUE',
+                       'product=FALSE')
 ```
 
 ## Preparar el entorno
 
 ```{r bibliotecas}
 library(sp)
-#library(rgdal)
 library(raster)
 library(dismo)
 library(rJava)
@@ -29,7 +33,7 @@ library(rworldxtra)
 library(rmaxent)
 library(usdm)
 library(lattice)
-
+library(rasterVis)
 
 sessionInfo()
 ```
@@ -219,15 +223,11 @@ for (i in 1:n_modelos) {
                         silent = FALSE,
                         factors=c('s15'),
                         args=c(
+                          parametros_modelo,
                           'removeDuplicates=TRUE', 
                           'jackknife=FALSE',
-                          'responsecurves=TRUE',
+                          'responsecurves=FALSE',
                           'threads=3',
-                          'linear=TRUE',
-                          'threshold=FALSE',
-                          'quadratic=TRUE',
-                          'hinge=TRUE',
-                          'product=FALSE',
                           paste0('betamultiplier=',reg_values[i])
                         ))
     modelos[[i]] <- modelo_maxent
@@ -247,9 +247,9 @@ saveRDS(modelos, paste0(file_prefix,
 prediccion_raw_list <- list()
 
 for (i in 1:n_modelos) {
-    print(parse_lambdas(modelos[[i]]))
+    #print(parse_lambdas(modelos[[i]]))
     non_zero_features <- n_features(modelos[[i]])
-    print(non_zero_features)
+    print(paste0("Modelo ", i, ", número de parámetros ", non_zero_features))
     
     prediccion_raw_list[[i]] <- rmaxent::project(modelos[[i]],
                         subset(bio_vars, predictors),
@@ -314,21 +314,24 @@ modelos[[best_index]] <- maxent(
                         silent = FALSE,
                         factors=c('s15'),
                         args=c(
+                          parametros_modelo,
                           'removeDuplicates=TRUE', 
                           'jackknife=TRUE',
                           'responsecurves=TRUE',
                           'threads=3',
-                          'linear=TRUE',
-                          'threshold=FALSE',
-                          'quadratic=TRUE',
-                          'hinge=TRUE',
-                          'product=FALSE',
                           'maximumiterations=5000',
                           paste0('betamultiplier=',reg_values[best_index])
                         ))
 
 saveRDS(modelos, paste0(file_prefix,
                               "_",taxon_,".rds"))
+```
+
+
+```{r}
+paste("Número de iteraciones:", modelos[[best_index]]@results['Iterations',1])
+#str(modelos[[best_index]])
+#modelos[[best_index]]@results
 ```
 
 
@@ -556,12 +559,11 @@ lim <- limiting(subset(bio_vars, predictors), modelos[[best_index]])
 ```{r limiting-plot, fig.width = 8, fig.height = 8}
 #plot(lim, col=terrain.colors(length(predictors)))
 
-library(rasterVis)
 lim <- as.factor(lim)
 lim_tabla <- levels(lim)[[1]]
 lim_tabla[["vars"]] <- predictor_names[c(unlist(lim_tabla))]
 levels(lim) <- lim_tabla
-levelplot(lim, col.regions=terrain.colors, xlab="", ylab="")
+levelplot(lim, col.regions=topo.colors, xlab="", ylab="")
 ```
 
 
