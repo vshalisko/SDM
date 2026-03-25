@@ -24,4 +24,4 @@
 * 2026.03 Se llevo a cabo prueba de ambos scripts mencionados en puntos anteriores para caso de pato, con dos conjuntos de variables:
 * 2026.03 [script busqueda de regularización con AICc pato primer conjunto de variables](https://github.com/vshalisko/SDM/blob/48e5cfbce5d284cf7ceccec156664e30ea99b975/2026_pato/Modelo_simple_1_MAXENT_Pato_con_AIC.Rmd),
 * 2026.03 [script búsqueda de regularizacion con AICc pato segundo conjunto de variables](https://github.com/vshalisko/SDM/blob/48e5cfbce5d284cf7ceccec156664e30ea99b975/2026_pato/Modelo_simple_3_MAXENT_Pato_con_AIC.Rmd),
-* 2026.03 [script validación cruzada del modelo óptimo pato promer conjunto de variables](https://github.com/vshalisko/SDM/blob/48e5cfbce5d284cf7ceccec156664e30ea99b975/2026_pato/Modelo_CV_1A_MAXENT_Pato.Rmd) 
+* 2026.03 [script validación cruzada del modelo óptimo pato primer conjunto de variables](https://github.com/vshalisko/SDM/blob/48e5cfbce5d284cf7ceccec156664e30ea99b975/2026_pato/Modelo_CV_1A_MAXENT_Pato.Rmd) 
